@@ -1,0 +1,48 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environments
+venv/
+.venv/
+env/
+ENV/
+.env
+
+# Large model files and datasets
+models/
+hf_cache/
+*.gguf
+*.bin
+*.pt
+
+# Databases
+*.sqlite
+*.sqlite3
+*.db
+
+# Temporary and agent files
+scratch/
+.agents/
+.pytest_cache/
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# IDEs
+.idea/
+.vscode/
+
+# Build artifacts
+*.egg-info/
+build/
+dist/
+
+# Document files / outputs
+*.pdf
+
+# Translation output
+output/
+downloads/
