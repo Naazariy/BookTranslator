@@ -188,7 +188,81 @@ class QualityPipeline(IQualityChecker):
             ))
             report.translation_score = max(0.0, report.translation_score - 0.2)
 
+        # 4. Check for leaked model control tokens (<|...|>)
+        leaked_control_tokens = re.findall(r'<\|[^|>\n]{1,40}\|>', translated_text)
+        if leaked_control_tokens:
+            report.issues.append(ValidationIssue(
+                rule_name="ResidualControlToken",
+                severity=IssueSeverity.CRITICAL,
+                message=f"Detected residual model control tokens in translation: {', '.join(set(leaked_control_tokens))}"
+            ))
+            report.translation_score = max(0.0, report.translation_score - 0.3)
+
+        from src.parsers.segmenter import RuleBasedSentenceSegmenter
+        from difflib import SequenceMatcher
+
+        translated_sents = RuleBasedSentenceSegmenter.split_sentences(translated_text) if translated_text else []
+
+        # 5. Check for consecutive duplicate sentences (similarity > 0.8)
+        for i in range(len(translated_sents) - 1):
+            s1 = translated_sents[i].strip()
+            s2 = translated_sents[i + 1].strip()
+            if len(s1) > 5 and len(s2) > 5:
+                ratio = SequenceMatcher(None, s1, s2).ratio()
+                if ratio > 0.8:
+                    report.issues.append(ValidationIssue(
+                        rule_name="ConsecutiveDuplicateSentences",
+                        severity=IssueSeverity.WARNING,
+                        message=f"Detected consecutive near-duplicate sentences (similarity {ratio:.2f}): '{s1}' and '{s2}'"
+                    ))
+                    report.translation_score = max(0.0, report.translation_score - 0.2)
+
+        # 6. Check for substantial sentence count drop (< 0.7 * expected)
+        target_ids = None
+        if hasattr(original_chunk, "target_sentence_ids"):
+            try:
+                raw_target_ids = getattr(original_chunk, "target_sentence_ids", None)
+                target_ids = set(raw_target_ids) if raw_target_ids else None
+            except AttributeError:
+                target_ids = None
+
+        source_sents = []
+        if hasattr(original_chunk, "source_sentences"):
+            try:
+                source_sents = getattr(original_chunk, "source_sentences", None) or []
+            except AttributeError:
+                source_sents = []
+
+        context_ids = set()
+        if hasattr(original_chunk, "context_sentence_ids"):
+            try:
+                raw_context_ids = getattr(original_chunk, "context_sentence_ids", None)
+                if raw_context_ids:
+                    context_ids = set(raw_context_ids)
+            except AttributeError:
+                context_ids = set()
+
+        if target_ids is not None and source_sents:
+            expected_count = len([s for s in source_sents if getattr(s, "id", None) in target_ids])
+        elif source_sents:
+            expected_count = len([s for s in source_sents if getattr(s, "id", None) not in context_ids])
+        else:
+            expected_count = 0
+
+        if expected_count > 1 and len(translated_sents) < 0.7 * expected_count:
+            report.issues.append(ValidationIssue(
+                rule_name="SentenceCountDrop",
+                severity=IssueSeverity.CRITICAL,
+                message=f"Translated sentence count ({len(translated_sents)}) dropped significantly below expected ({expected_count}, ratio: {len(translated_sents)/expected_count:.2f} < 0.7)."
+            ))
+            report.translation_score = max(0.0, report.translation_score - 0.4)
+
         if any(issue.severity == IssueSeverity.CRITICAL for issue in report.issues):
             report.is_passed = False
 
         return report
+
+
+# Alias for backward compatibility
+QualityChecker = QualityPipeline
+

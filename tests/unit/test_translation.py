@@ -192,6 +192,121 @@ def test_aya_refine_chunk_cancelled():
     assert result == draft
 
 
+def test_aya_parse_json_response_valid_json():
+    engine = QuantizedAyaEditingEngine(device="cpu", load_in_4bit=False)
+    raw = '{"1": "Перше речення.", "2": "Друге речення."}'
+    parsed = engine._parse_json_response(raw, expected_count=2, fallback_drafts={1: "Draft 1", 2: "Draft 2"})
+    assert parsed == {1: "Перше речення.", 2: "Друге речення."}
+
+
+def test_aya_parse_json_response_with_markdown_fences():
+    engine = QuantizedAyaEditingEngine(device="cpu", load_in_4bit=False)
+    raw = "```json\n{\n  \"1\": \"Відредагований текст 1.\",\n  \"2\": \"Відредагований текст 2.\"\n}\n```"
+    parsed = engine._parse_json_response(raw, expected_count=2, fallback_drafts={1: "Draft 1", 2: "Draft 2"})
+    assert parsed == {1: "Відредагований текст 1.", 2: "Відредагований текст 2."}
+
+
+def test_aya_parse_json_response_broken_syntax_and_missing_keys():
+    engine = QuantizedAyaEditingEngine(device="cpu", load_in_4bit=False)
+    # Partial broken JSON: key 1 is valid, key 2 is missing, key 3 is broken
+    raw = '{"1": "Тільки перше", "other": "невалідний ключ"}'
+    fallbacks = {1: "Draft 1", 2: "Draft 2", 3: "Draft 3"}
+    parsed = engine._parse_json_response(raw, expected_count=3, fallback_drafts=fallbacks)
+    assert parsed[1] == "Тільки перше"
+    assert parsed[2] == "Draft 2"
+    assert parsed[3] == "Draft 3"
+
+
+def test_aya_parse_json_response_completely_invalid_returns_fallbacks():
+    engine = QuantizedAyaEditingEngine(device="cpu", load_in_4bit=False)
+    raw = "Це не JSON взагалі, а просто випадковий текст помилки моделі."
+    fallbacks = {1: "Draft 1", 2: "Draft 2"}
+    parsed = engine._parse_json_response(raw, expected_count=2, fallback_drafts=fallbacks)
+    assert parsed == {1: "Draft 1", 2: "Draft 2"}
+
+
+def test_aya_parse_json_response_single_quotes_and_numbered_list():
+    engine = QuantizedAyaEditingEngine(device="cpu", load_in_4bit=False)
+    # Single quotes
+    raw_single = "{'1': 'Речення 1.', '2': 'Речення 2.'}"
+    parsed_single = engine._parse_json_response(raw_single, expected_count=2, fallback_drafts={1: "D1", 2: "D2"})
+    assert parsed_single == {1: "Речення 1.", 2: "Речення 2."}
+
+    # Numbered list format
+    raw_numbered = '1. "Перше речення"\n2. "Друге речення"'
+    parsed_num = engine._parse_json_response(raw_numbered, expected_count=2, fallback_drafts={1: "D1", 2: "D2"})
+    assert parsed_num == {1: "Перше речення", 2: "Друге речення"}
+
+
+def test_aya_parse_json_response_with_unescaped_internal_quotes():
+    engine = QuantizedAyaEditingEngine(device="cpu", load_in_4bit=False)
+    raw = '{\n  "1": "Він сказав: "Стій!" і пішов далі.",\n  "2": "Вона не відповіла."\n}'
+    parsed = engine._parse_json_response(raw, expected_count=2, fallback_drafts={1: "D1", 2: "D2"})
+    assert parsed[1] == 'Він сказав: "Стій!" і пішов далі.'
+    assert parsed[2] == "Вона не відповіла."
+
+
+def test_aya_parse_json_response_multiline_and_zero_indexing():
+    engine = QuantizedAyaEditingEngine(device="cpu", load_in_4bit=False)
+    # Multiline string with literal newline
+    raw_multiline = '{\n  "1": "Рядок 1.\nРядок 2.",\n  "2": "Речення 2."\n}'
+    parsed_multi = engine._parse_json_response(raw_multiline, expected_count=2, fallback_drafts={1: "D1", 2: "D2"})
+    assert parsed_multi[1] == "Рядок 1.\nРядок 2."
+    assert parsed_multi[2] == "Речення 2."
+
+    # 0-indexed dictionary
+    raw_zero = '{"0": "Перше", "1": "Друге"}'
+    parsed_zero = engine._parse_json_response(raw_zero, expected_count=2, fallback_drafts={1: "D1", 2: "D2"})
+    assert parsed_zero == {1: "Перше", 2: "Друге"}
+
+
+def test_aya_parse_json_response_arrays_and_wrapped_objects():
+    engine = QuantizedAyaEditingEngine(device="cpu", load_in_4bit=False)
+    # Direct JSON array
+    raw_arr = '["Перше речення.", "Друге речення."]'
+    parsed_arr = engine._parse_json_response(raw_arr, expected_count=2, fallback_drafts={1: "D1", 2: "D2"})
+    assert parsed_arr == {1: "Перше речення.", 2: "Друге речення."}
+
+    # Wrapped in root object (e.g. {"translations": [...]})
+    raw_wrapped_arr = '{"translations": ["Перше речення.", "Друге речення."]}'
+    parsed_w_arr = engine._parse_json_response(raw_wrapped_arr, expected_count=2, fallback_drafts={1: "D1", 2: "D2"})
+    assert parsed_w_arr == {1: "Перше речення.", 2: "Друге речення."}
+
+    # Wrapped in root object (e.g. {"sentences": {"1": ...}})
+    raw_wrapped_dict = '{"sentences": {"1": "Перше.", "2": "Друге."}}'
+    parsed_w_dict = engine._parse_json_response(raw_wrapped_dict, expected_count=2, fallback_drafts={1: "D1", 2: "D2"})
+    assert parsed_w_dict == {1: "Перше.", 2: "Друге."}
+
+    # Dict of dicts (e.g. {"1": {"uk": "Перше.", "en": "First."}})
+    raw_dict_of_dicts = '{"1": {"uk": "Перше.", "en": "First."}, "2": {"translation": "Друге."}}'
+    parsed_nested = engine._parse_json_response(raw_dict_of_dicts, expected_count=2, fallback_drafts={1: "D1", 2: "D2"})
+    assert parsed_nested == {1: "Перше.", 2: "Друге."}
+
+    # Single sentence with "translation" key
+    raw_single_key = '{"translation": "Єдине відредаговане речення."}'
+    parsed_single = engine._parse_json_response(raw_single_key, expected_count=1, fallback_drafts={1: "Draft"})
+    assert parsed_single == {1: "Єдине відредаговане речення."}
+
+
+def test_translation_interface_type_hints():
+    import typing
+    from src.domain.interfaces.translation import IEditingEngine
+    hints = typing.get_type_hints(IEditingEngine.refine_chunk_structured)
+    assert "return" in hints
+    assert hints["return"] == typing.Dict[int, str]
+
+
+def test_aya_refine_chunk_structured_cancelled():
+    engine = QuantizedAyaEditingEngine(device="cpu", load_in_4bit=False)
+    token = MockCancellationToken(is_cancelled=True)
+    sentences = [
+        Sentence(id=uuid4(), original_text="Hello.", translated_text="Привіт.", order_index=0),
+        Sentence(id=uuid4(), original_text="World.", translated_text="Світ.", order_index=1),
+    ]
+    res = engine.refine_chunk_structured(sentences, cancel_token=token)
+    assert res == {1: "Привіт.", 2: "Світ."}
+
+
 # ============================================================================
 # 5. TwoStageTranslationPipeline Tests
 # ============================================================================

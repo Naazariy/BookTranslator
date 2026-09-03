@@ -139,6 +139,31 @@ class TestSanitizerRegex:
         sanitized = engine._sanitize_output(dialogue)
         assert sanitized == 'Він сказав: "Ніколи!" і вийшов з кімнати.'
 
+    def test_sanitize_control_tokens(self, engine):
+        """Strips arbitrary model control tokens (<|...|> like <|im_end|>, <|im_start|>, etc.)."""
+        case1 = "<|im_start|>system\nТекст перекладу.<|im_end|>"
+        assert engine._sanitize_output(case1) == "system\nТекст перекладу."
+
+        case2 = "Речення з токеном кінця.<|endoftext|>"
+        assert engine._sanitize_output(case2) == "Речення з токеном кінця."
+
+        case3 = "<|START_OF_TURN_TOKEN|>Чистий текст.<|END_OF_TURN_TOKEN|>"
+        assert engine._sanitize_output(case3) == "Чистий текст."
+
+        case4 = "Текст <|custom_model_token_42|> всередині речення."
+        assert engine._sanitize_output(case4) == "Текст  всередині речення."
+
+    def test_sanitize_inline_markdown_emphasis(self, engine):
+        """Strips inline bold (**...**) and italic (*...*) markdown formatting."""
+        case1 = "Це було **неймовірно** гарне видовище."
+        assert engine._sanitize_output(case1) == "Це було неймовірно гарне видовище."
+
+        case2 = "Він промовив *пошепки*, щоб ніхто не почув."
+        assert engine._sanitize_output(case2) == "Він промовив пошепки, щоб ніхто не почув."
+
+        case3 = "Поєднання **жирного** та *курсивного* тексту."
+        assert engine._sanitize_output(case3) == "Поєднання жирного та курсивного тексту."
+
     def test_sanitize_mixed_script_words_and_portmanteaus(self, engine):
         """Sanitizes mixed Cyrillic-Latin hybrid words and homoglyph leakages."""
         # Smachnissimo -> Smakota
@@ -159,13 +184,14 @@ class TestSanitizerRegex:
         complex_artifact = (
             "```markdown\n"
             "# Фінальний покращений переклад:\n"
+            "<|im_start|>assistant\n"
             "Ось готовий переклад:\n"
             "=== ВІДРЕДАГОВАНИЙ ТЕКСТ ===\n"
-            '«<tag_1>Чистий результат після п\'яти проходів.</tag_1>»\n'
+            '«<tag_1>**Чистий результат** після п\'яти проходів.</tag_1>»<|im_end|>\n'
             "```"
         )
         result = engine._sanitize_output(complex_artifact)
-        assert result == "Чистий результат після п'яти проходів."
+        assert result == "assistant\nЧистий результат після п'яти проходів." or result == "Чистий результат після п'яти проходів."
 
 
 # ============================================================================
@@ -242,12 +268,11 @@ class TestPromptTemplateFormatting:
     """Tests prompt template loading, source text insertion, and glossary structuring."""
 
     def test_prompt_template_file_contains_required_sections(self):
-        """Checks editing_prompt.md structure for source_text, glossary_terms, draft_text, context."""
+        """Checks editing_prompt.md structure for target_sentences_block, glossary_terms, context."""
         prompt_path = Path("data/prompts/editing_prompt.md")
         if prompt_path.exists():
             content = prompt_path.read_text(encoding="utf-8")
-            assert "{source_text}" in content
-            assert "{draft_text}" in content
+            assert "{target_sentences_block}" in content
             assert "{glossary_terms}" in content
             assert "{context_previous}" in content
             assert "СУВОРІ ЗАБОРОНИ" in content or "СУВОРІ ПРАВИЛА" in content
@@ -258,8 +283,7 @@ class TestPromptTemplateFormatting:
         """Engine fallback prompt contains all standard placeholders."""
         engine = QuantizedAyaEditingEngine(prompt_path=Path("non_existent_path.md"), device="cpu", load_in_4bit=False)
         template = engine.cached_prompt_template
-        assert "{source_text}" in template
-        assert "{draft_text}" in template
+        assert "{target_sentences_block}" in template
         assert "{glossary_terms}" in template
         assert "{context_previous}" in template
 

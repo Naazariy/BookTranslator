@@ -232,8 +232,6 @@ class TwoStageTranslationPipeline(ITranslationPipeline):
             self.aya_engine.load_model()
 
         try:
-            from src.parsers.segmenter import RuleBasedSentenceSegmenter
-            segmenter = RuleBasedSentenceSegmenter()
             draft_chunks = list(self.kb_repo.load_chunks_by_status(book_id, ChunkStatus.DRAFT_COMPLETED))
             total_chunks = len(draft_chunks)
             if total_chunks == 0:
@@ -250,61 +248,50 @@ class TwoStageTranslationPipeline(ITranslationPipeline):
 
                 target_ids = set(chunk.target_sentence_ids) if chunk.target_sentence_ids else {s.id for s in chunk.source_sentences if s.id not in chunk.context_sentence_ids}
                 target_sentences = [s for s in chunk.source_sentences if s.id in target_ids]
+                if not target_sentences:
+                    continue
 
                 source_text = " ".join(s.original_text for s in target_sentences)
                 draft_translation = chunk.draft_translation or " ".join(s.translated_text for s in target_sentences if s.translated_text)
 
-                context = chunk.context
-                if not context.previous_sentences:
-                    context_sentences = [s for s in chunk.source_sentences if s.id in chunk.context_sentence_ids]
-                    if context_sentences:
-                        context = ChunkContext(
-                            previous_sentences=[s.original_text for s in context_sentences],
-                            active_glossary=context.active_glossary,
-                            previous_summary=context.previous_summary
-                        )
+                context_sentences = [s for s in chunk.source_sentences if s.id in chunk.context_sentence_ids]
+                if not context_sentences and chunk.context and chunk.context.previous_sentences:
+                    context_sentences = chunk.context.previous_sentences
 
                 # Filter glossary dynamically per chunk
                 chunk_glossary = filter_glossary_for_chunk(all_glossary, source_text, draft_translation)
 
-                # Literary refinement via Aya LLM
-                refined_text = self.aya_engine.refine_chunk(
-                    draft_translation=draft_translation,
-                    source_text=source_text,
-                    context=context,
-                    glossary=chunk_glossary,
-                    cancel_token=token
-                )
+                # Literary refinement via Aya LLM structured JSON
+                refined_map = None
+                if hasattr(self.aya_engine, "refine_chunk_structured") and callable(getattr(self.aya_engine, "refine_chunk_structured")):
+                    res = self.aya_engine.refine_chunk_structured(
+                        target_sentences=target_sentences,
+                        context_sentences=context_sentences,
+                        glossary=chunk_glossary,
+                        cancel_token=token
+                    )
+                    if isinstance(res, dict):
+                        refined_map = res
 
-                chunk.final_translation = refined_text.strip() if (refined_text and refined_text.strip()) else chunk.draft_translation
-                chunk.status = ChunkStatus.REFINED
-
-                # Write per sentence_id for target sentences and programmatically ignore context sentences
-                refined_sentences = segmenter.split_sentences(refined_text) if (refined_text and refined_text.strip()) else []
-                if len(refined_sentences) == len(target_sentences):
-                    for s, r_text in zip(target_sentences, refined_sentences):
-                        s.translated_text = r_text.strip()
-                elif len(target_sentences) == 1:
-                    if refined_sentences:
-                        target_sentences[0].translated_text = " ".join(s.strip() for s in refined_sentences).strip()
-                    elif refined_text and refined_text.strip():
-                        target_sentences[0].translated_text = refined_text.strip()
-                    elif not (target_sentences[0].translated_text and target_sentences[0].translated_text.strip()):
-                        target_sentences[0].translated_text = target_sentences[0].original_text
-                elif refined_sentences:
-                    if len(refined_sentences) < len(target_sentences):
-                        for idx in range(len(refined_sentences)):
-                            target_sentences[idx].translated_text = refined_sentences[idx].strip()
-                        for idx in range(len(refined_sentences), len(target_sentences)):
-                            target_sentences[idx].translated_text = ""
-                    else:
-                        for idx in range(len(target_sentences) - 1):
-                            target_sentences[idx].translated_text = refined_sentences[idx].strip()
-                        target_sentences[-1].translated_text = " ".join(refined_sentences[len(target_sentences) - 1:]).strip()
-                else:
-                    for s in target_sentences:
-                        if not (s.translated_text and s.translated_text.strip()):
+                if refined_map is not None:
+                    for idx, s in enumerate(target_sentences, 1):
+                        if idx in refined_map:
+                            s.translated_text = refined_map[idx]
+                        elif not s.translated_text:
                             s.translated_text = s.original_text
+                else:
+                    refined_text = self.aya_engine.refine_chunk(
+                        draft_translation=draft_translation,
+                        source_text=source_text,
+                        context=chunk.context,
+                        glossary=chunk_glossary,
+                        cancel_token=token
+                    )
+                    if target_sentences:
+                        target_sentences[0].translated_text = str(refined_text).strip() if refined_text else draft_translation
+
+                chunk.final_translation = " ".join(s.translated_text for s in target_sentences if s.translated_text).strip()
+                chunk.status = ChunkStatus.REFINED
 
                 # Immediate single-chunk commit
                 self.kb_repo.save_chunk_state(chunk)
@@ -390,61 +377,52 @@ class TwoStageTranslationPipeline(ITranslationPipeline):
             self.aya_engine.load_model()
 
         try:
-            from src.parsers.segmenter import RuleBasedSentenceSegmenter
-            segmenter = RuleBasedSentenceSegmenter()
             all_glossary = self.kb_repo.get_glossary() if hasattr(self.kb_repo, "get_glossary") else []
             for chunk in chunks_list:
                 target_ids = set(chunk.target_sentence_ids) if chunk.target_sentence_ids else {s.id for s in chunk.source_sentences if s.id not in chunk.context_sentence_ids}
                 target_sentences = [s for s in chunk.source_sentences if s.id in target_ids]
-                source_text = " ".join(s.original_text for s in target_sentences)
+                if not target_sentences:
+                    yield chunk
+                    continue
 
-                context = chunk.context
-                if not context.previous_sentences:
-                    context_sentences = [s for s in chunk.source_sentences if s.id in chunk.context_sentence_ids]
-                    if context_sentences:
-                        context = ChunkContext(
-                            previous_sentences=[s.original_text for s in context_sentences],
-                            active_glossary=context.active_glossary,
-                            previous_summary=context.previous_summary
-                        )
+                source_text = " ".join(s.original_text for s in target_sentences)
+                draft_translation = chunk.draft_translation or " ".join(s.translated_text for s in target_sentences if s.translated_text)
+
+                context_sentences = [s for s in chunk.source_sentences if s.id in chunk.context_sentence_ids]
+                if not context_sentences and chunk.context and chunk.context.previous_sentences:
+                    context_sentences = chunk.context.previous_sentences
 
                 # Filter glossary dynamically per chunk
-                chunk_glossary = filter_glossary_for_chunk(all_glossary, source_text, chunk.draft_translation or "")
+                chunk_glossary = filter_glossary_for_chunk(all_glossary, source_text, draft_translation)
 
-                refined = self.aya_engine.refine_chunk(
-                    draft_translation=chunk.draft_translation or "",
-                    source_text=source_text,
-                    context=context,
-                    glossary=chunk_glossary
-                )
-                chunk.final_translation = refined.strip() if (refined and refined.strip()) else chunk.draft_translation
-                chunk.status = ChunkStatus.REFINED
+                refined_map = None
+                if hasattr(self.aya_engine, "refine_chunk_structured") and callable(getattr(self.aya_engine, "refine_chunk_structured")):
+                    res = self.aya_engine.refine_chunk_structured(
+                        target_sentences=target_sentences,
+                        context_sentences=context_sentences,
+                        glossary=chunk_glossary
+                    )
+                    if isinstance(res, dict):
+                        refined_map = res
 
-                refined_sentences = segmenter.split_sentences(refined) if (refined and refined.strip()) else []
-                if len(refined_sentences) == len(target_sentences):
-                    for s, r_text in zip(target_sentences, refined_sentences):
-                        s.translated_text = r_text.strip()
-                elif len(target_sentences) == 1:
-                    if refined_sentences:
-                        target_sentences[0].translated_text = " ".join(s.strip() for s in refined_sentences).strip()
-                    elif refined and refined.strip():
-                        target_sentences[0].translated_text = refined.strip()
-                    elif not (target_sentences[0].translated_text and target_sentences[0].translated_text.strip()):
-                        target_sentences[0].translated_text = target_sentences[0].original_text
-                elif refined_sentences:
-                    if len(refined_sentences) < len(target_sentences):
-                        for idx in range(len(refined_sentences)):
-                            target_sentences[idx].translated_text = refined_sentences[idx].strip()
-                        for idx in range(len(refined_sentences), len(target_sentences)):
-                            target_sentences[idx].translated_text = ""
-                    else:
-                        for idx in range(len(target_sentences) - 1):
-                            target_sentences[idx].translated_text = refined_sentences[idx].strip()
-                        target_sentences[-1].translated_text = " ".join(refined_sentences[len(target_sentences) - 1:]).strip()
-                else:
-                    for s in target_sentences:
-                        if not (s.translated_text and s.translated_text.strip()):
+                if refined_map is not None:
+                    for idx, s in enumerate(target_sentences, 1):
+                        if idx in refined_map:
+                            s.translated_text = refined_map[idx]
+                        elif not s.translated_text:
                             s.translated_text = s.original_text
+                else:
+                    refined = self.aya_engine.refine_chunk(
+                        draft_translation=draft_translation,
+                        source_text=source_text,
+                        context=chunk.context,
+                        glossary=chunk_glossary
+                    )
+                    if target_sentences:
+                        target_sentences[0].translated_text = str(refined).strip() if refined else draft_translation
+
+                chunk.final_translation = " ".join(s.translated_text for s in target_sentences if s.translated_text).strip()
+                chunk.status = ChunkStatus.REFINED
 
                 yield chunk
 

@@ -431,6 +431,81 @@ class MockQuantizedAyaEngine(IEditingEngine):
 
         return refined
 
+    def refine_chunk_structured(
+        self,
+        target_sentences: List[Any],
+        context_sentences: Optional[List[Any]] = None,
+        glossary: Optional[List[GlossaryItem]] = None,
+        cancel_token: Optional[CancellationToken] = None,
+        *args,
+        **kwargs
+    ) -> Dict[int, str]:
+        if not self.is_loaded:
+            raise RuntimeError("Aya model is not loaded into VRAM. Call load_model() first.")
+
+        token = cancel_token or kwargs.get("cancel_token") or kwargs.get("cancel_event")
+        if token and hasattr(token, "is_cancelled") and token.is_cancelled():
+            raise RuntimeError("Generation cancelled by user token.")
+
+        if not target_sentences:
+            return {}
+
+        # Build context ChunkContext for refine_chunk
+        if isinstance(context_sentences, ChunkContext):
+            ctx = context_sentences
+        elif isinstance(context_sentences, list):
+            ctx_list = [
+                s.original_text if hasattr(s, "original_text") else str(s)
+                for s in context_sentences
+            ]
+            ctx = ChunkContext(previous_sentences=ctx_list)
+        else:
+            ctx = ChunkContext(previous_sentences=[])
+
+        full_draft = " ".join(
+            (s.translated_text if hasattr(s, "translated_text") and s.translated_text else (s.get("translated_text") if isinstance(s, dict) else str(s)))
+            for s in target_sentences
+        )
+        full_src = " ".join(
+            (s.original_text if hasattr(s, "original_text") else (s.get("original_text") if isinstance(s, dict) else str(s)))
+            for s in target_sentences
+        )
+
+        refined_output = self.refine_chunk(
+            draft_translation=full_draft,
+            source_text=full_src,
+            context=ctx,
+            glossary=glossary,
+            cancel_token=token
+        )
+
+        from src.parsers.segmenter import RuleBasedSentenceSegmenter
+        split_sents = RuleBasedSentenceSegmenter.split_sentences(refined_output) if refined_output else []
+
+        result = {}
+        n = len(target_sentences)
+        if len(split_sents) == n:
+            for i in range(1, n + 1):
+                result[i] = split_sents[i - 1].strip()
+        elif n == 1:
+            result[1] = refined_output.strip() if (refined_output and refined_output.strip()) else full_draft
+        elif split_sents:
+            if len(split_sents) < n:
+                for i in range(1, len(split_sents) + 1):
+                    result[i] = split_sents[i - 1].strip()
+                for i in range(len(split_sents) + 1, n + 1):
+                    result[i] = ""
+            else:
+                for i in range(1, n):
+                    result[i] = split_sents[i - 1].strip()
+                result[n] = " ".join(s.strip() for s in split_sents[n - 1:])
+        else:
+            for i, s in enumerate(target_sentences, 1):
+                t_val = s.translated_text if hasattr(s, "translated_text") else (s.get("translated_text") if isinstance(s, dict) else "")
+                result[i] = t_val or (s.original_text if hasattr(s, "original_text") else str(s))
+
+        return result
+
     def refine_batch(
         self,
         drafts: List[str],
