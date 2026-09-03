@@ -70,19 +70,38 @@ class SQLiteKnowledgeBaseRepository(IKnowledgeBaseRepository):
             )
 
     def get_glossary(self) -> List[GlossaryItem]:
-        """Retrieves all glossary items."""
+        """Retrieves all glossary items including review status and grammatical gender."""
         conn = self._get_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT source_term, target_term, entity_type, case_sensitive FROM glossary")
-        rows = cursor.fetchall()
-        return [
-            GlossaryItem(
-                source_term=row[0],
-                target_term=row[1],
-                entity_type=row[2],
-                case_sensitive=bool(row[3])
-            ) for row in rows
-        ]
+        try:
+            cursor.execute("""
+                SELECT g.source_term, g.target_term, g.entity_type, g.case_sensitive,
+                       COALESCE(m.reviewed, 0), m.grammatical_gender
+                FROM glossary g
+                LEFT JOIN glossary_metadata m ON g.source_term = m.source_term
+            """)
+            rows = cursor.fetchall()
+            return [
+                GlossaryItem(
+                    source_term=row[0],
+                    target_term=row[1],
+                    entity_type=row[2],
+                    case_sensitive=bool(row[3]),
+                    reviewed=bool(row[4]),
+                    grammatical_gender=row[5]
+                ) for row in rows
+            ]
+        except Exception:
+            cursor.execute("SELECT source_term, target_term, entity_type, case_sensitive FROM glossary")
+            rows = cursor.fetchall()
+            return [
+                GlossaryItem(
+                    source_term=row[0],
+                    target_term=row[1],
+                    entity_type=row[2],
+                    case_sensitive=bool(row[3])
+                ) for row in rows
+            ]
 
     def add_glossary_item(self, item: GlossaryItem) -> None:
         """Adds or updates a single glossary item."""
@@ -98,6 +117,18 @@ class SQLiteKnowledgeBaseRepository(IKnowledgeBaseRepository):
                     1 if item.case_sensitive else 0
                 )
             )
+            try:
+                conn.execute(
+                    "INSERT OR REPLACE INTO glossary_metadata (source_term, reviewed, grammatical_gender) "
+                    "VALUES (?, ?, ?)",
+                    (
+                        item.source_term,
+                        1 if getattr(item, "reviewed", False) else 0,
+                        getattr(item, "grammatical_gender", None)
+                    )
+                )
+            except Exception:
+                pass
 
     def add_glossary_items(self, items: List[GlossaryItem]) -> None:
         """Batch inserts or updates glossary items."""
@@ -113,18 +144,38 @@ class SQLiteKnowledgeBaseRepository(IKnowledgeBaseRepository):
             )
             for item in items
         ]
+        meta_records = [
+            (
+                item.source_term,
+                1 if getattr(item, "reviewed", False) else 0,
+                getattr(item, "grammatical_gender", None)
+            )
+            for item in items
+        ]
         with conn:
             conn.executemany(
                 "INSERT OR REPLACE INTO glossary (source_term, target_term, entity_type, case_sensitive) "
                 "VALUES (?, ?, ?, ?)",
                 records
             )
+            try:
+                conn.executemany(
+                    "INSERT OR REPLACE INTO glossary_metadata (source_term, reviewed, grammatical_gender) "
+                    "VALUES (?, ?, ?)",
+                    meta_records
+                )
+            except Exception:
+                pass
 
     def delete_glossary_item(self, source_term: str) -> None:
         """Deletes a glossary item by its source term."""
         conn = self._get_connection()
         with conn:
             conn.execute("DELETE FROM glossary WHERE source_term = ?", (source_term,))
+            try:
+                conn.execute("DELETE FROM glossary_metadata WHERE source_term = ?", (source_term,))
+            except Exception:
+                pass
 
     def search_translation_memory(self, source_text: str) -> Optional[str]:
         """Searches translation memory for matching source text segment."""

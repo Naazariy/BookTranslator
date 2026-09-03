@@ -422,7 +422,8 @@ class MockQuantizedAyaEngine(IEditingEngine):
         if glossary:
             for item in glossary:
                 if item.source_term in refined:
-                    refined = refined.replace(item.source_term, item.target_term)
+                    if getattr(item, "reviewed", False) or item.source_term != item.target_term:
+                        refined = refined.replace(item.source_term, item.target_term)
 
         # Polish literary style and clean synthetic markers
         refined = re.sub(r'\[Переклад:\s*(.*?)\]', r'\1', refined)

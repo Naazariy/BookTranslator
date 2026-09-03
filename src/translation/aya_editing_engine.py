@@ -161,7 +161,7 @@ class QuantizedAyaEditingEngine(IEditingEngine):
             "## СУВОРІ ПРАВИЛА РЕДАГУВАННЯ:\n"
             "1. **Точність змісту**: Зберігай 100% змісту оригіналу. Заборонено пропускати речення або додавати інформацію, якої немає в оригіналі.\n"
             "2. **Відповідність 1-до-1**: Одне вхідне речення відповідає одному відредагованому реченню. Не об'єднуй і не розбивай речення.\n"
-            "3. **Дотримання глосарія**: Якщо термін чи ім'я є в списку «ГЛОСАРІЙ» — використовуй ВИКЛЮЧНО вказаний переклад без самовільних змін. Формат записів: `- {{source}} => {{target}}`.\n"
+            "3. **Дотримання глосарія**: Якщо термін чи ім'я є в списку «ГЛОСАРІЙ» — використовуй ВИКЛЮЧНО вказаний переклад без самовільних змін. Формат обов'язкових записів: `- {{source}} => {{target}}` (з можливим зазначенням роду). Для імен зі списку рекомендацій дотримуйся єдиного перекладу/транслітерації без нав'язування заглушки.\n"
             "4. **Одиниці виміру**: Дотримуйся точних метричних еквівалентів (80 feet = 24 метри / 24,4 м, 15 feet = 4,6 м, 100 miles = 161 км).\n"
             "5. **Чистота мови та заборони**:\n"
             "   - Заборонено змішувати латиницю та кирилицю всередині слів (наприклад, \"Смачнissimo\").\n"
@@ -532,8 +532,8 @@ class QuantizedAyaEditingEngine(IEditingEngine):
         # Strategy 1: Direct json.loads with strict=False (allows literal newlines/controls in strings)
         try:
             parsed_data = json.loads(target_str, strict=False)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Strategy 1 json.loads failed ({e}); transitioning to Strategy 2.")
 
         # Strategy 2: Extract outermost {...} or [...]
         if parsed_data is None:
@@ -563,6 +563,7 @@ class QuantizedAyaEditingEngine(IEditingEngine):
 
         # Strategy 3: Key-value pattern extraction resilient to unescaped quotes & dialogue
         if parsed_data is None or not isinstance(parsed_data, (dict, list)):
+            logger.debug("Strategy 1 and Strategy 2 failed; transitioning to Strategy 3 (regex key-value extraction).")
             extracted = {}
             pattern = r'(?:^|[\n,{\[])\s*[\'"`]?(?:sentence_|sent_|s)?(\d+)[\'"`]?\s*[:.]\s*(.*?)(?=(?:[\n,]\s*[\'"`]?(?:sentence_|sent_|s)?\d+[\'"`]?\s*[:.]|\s*\}|\s*\]|\s*$))'
             matches = re.findall(pattern, target_str, re.DOTALL)
@@ -572,15 +573,48 @@ class QuantizedAyaEditingEngine(IEditingEngine):
                     v = v_raw.strip()
                     if v.endswith(','):
                         v = v[:-1].strip()
-                    if (v.startswith('"') and v.endswith('"')) or (v.startswith("'") and v.endswith("'")):
-                        if v.count('"') == 2 or v.count("'") == 2:
-                            v = v[1:-1].strip()
-                        elif v.startswith('"') and v.endswith('"'):
-                            try:
-                                v_unescaped = json.loads(v, strict=False)
-                                v = v_unescaped
-                            except Exception:
-                                v = v[1:-1].strip()
+
+                    # Strip trailing backslashes if truncated
+                    while v.endswith('\\'):
+                        v = v[:-1]
+
+                    # Normalize escaped quotes at boundaries
+                    if v.startswith('\\"'):
+                        v = '"' + v[2:]
+                    elif v.startswith('\\'):
+                        v = v[1:]
+
+                    if v.endswith('\\"'):
+                        v = v[:-2] + '"'
+
+                    # Unescape escaped characters inside
+                    v = v.replace('\\"', '"').replace('\\n', '\n').replace('\\\\', '\\')
+
+                    while v.endswith('\\'):
+                        v = v[:-1]
+
+                    # Quote resolution for JSON value delimiters
+                    if v.startswith('"') or v.startswith("'"):
+                        q = v[0]
+                        q_count = v.count(q)
+                        ends_with_q = v.endswith(q)
+
+                        if ends_with_q and q_count % 2 == 0:
+                            v = v[1:-1]
+                        elif not ends_with_q or q_count % 2 == 1:
+                            v = v[1:]
+
+                    # Remove residual leading backslash or unclosed quote
+                    while v.startswith('\\"') or v.startswith('\\'):
+                        if v.startswith('\\"'):
+                            v = v[2:]
+                        else:
+                            v = v[1:]
+                    if v.startswith('"') and not v.endswith('"'):
+                        v = v[1:]
+
+                    v = v.strip()
+
                     extracted[k_num] = v
                 except Exception:
                     continue
@@ -701,7 +735,24 @@ class QuantizedAyaEditingEngine(IEditingEngine):
 
         # Format glossary string
         if glossary:
-            glossary_str = "\n".join(f"- {item.source_term} => {item.target_term}" for item in glossary)
+            reviewed_items = [item for item in glossary if getattr(item, "reviewed", False)]
+            unreviewed_items = [item for item in glossary if not getattr(item, "reviewed", False)]
+
+            glossary_lines = []
+            if reviewed_items:
+                for item in reviewed_items:
+                    line = f"- {item.source_term} => {item.target_term}"
+                    gender = getattr(item, "grammatical_gender", None)
+                    if gender:
+                        line += f", граматичний рід: {gender}"
+                    glossary_lines.append(line)
+
+            if unreviewed_items:
+                glossary_lines.append("Рекомендація однакового перекладу та транслітерації повторюваних імен:")
+                for item in unreviewed_items:
+                    glossary_lines.append(f"- {item.source_term}")
+
+            glossary_str = "\n".join(glossary_lines) if glossary_lines else "Відсутній (термінів у цьому фрагменті не виявлено)"
         else:
             glossary_str = "Відсутній (термінів у цьому фрагменті не виявлено)"
 

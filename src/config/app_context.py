@@ -1,7 +1,7 @@
 from dependency_injector import containers, providers
 import logging
 
-from src.config.settings import Settings
+from src.config.settings import Settings, settings
 from src.document_manager.manager import DocumentManager
 from src.knowledge_base.sqlite_repository import SQLiteKnowledgeBaseRepository
 from src.chunking.manager import ChunkManager
@@ -14,6 +14,7 @@ from src.quality.pipeline import QualityPipeline
 
 class ApplicationContainer(containers.DeclarativeContainer):
     config = providers.Configuration()
+    settings = providers.Object(settings)
     
     # Repositories
     kb_repository = providers.Singleton(
@@ -45,7 +46,8 @@ class ApplicationContainer(containers.DeclarativeContainer):
     
     preprocessing_pipeline = providers.Singleton(
         PreprocessingPipeline,
-        kb_repo=kb_repository
+        kb_repo=kb_repository,
+        convert_units=settings.provided.convert_units
     )
     
     translation_pipeline = providers.Singleton(

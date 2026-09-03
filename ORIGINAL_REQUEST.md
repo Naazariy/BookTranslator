@@ -119,3 +119,64 @@ Adjust Aya hyperparameters (repetition penalty calibration). Implement dynamic c
 - [ ] New unit tests have been written specifically to cover `UnitConverter` logic and the new `_sanitize_output` regex paths, and they pass.
 - [ ] Running an end-to-end test translation confirms the pipeline no longer produces duplicates, dropped sentences, or unhandled markdown headers.
 
+## 2026-09-03T08:14:20Z
+
+# Teamwork Project Prompt — Draft
+
+> Status: Launched
+> Goal: Craft prompt → get user approval → delegate to teamwork_preview
+> Requested team: Small focused team (single self-contained bug fix)
+
+This is a single self-contained fix; keep it small and focused.
+Виправити 4 підтверджених проблеми другого раунду тестування BookTranslator у суворому порядку черговості (1 -> 3 -> 2 -> 4) із зупинкою на перевірці тестів (`pytest tests/unit -x`) після кожного кроку:
+1. Проблема 1 (найпростіша й локалізована): обробка обірваних escape-артефактів (`\"...`) при неповному JSON.
+2. Проблема 3 (wiring): активація та прокидання `convert_units` через Settings, DI-контейнер та CLI.
+3. Проблема 2 (модель даних і промпт): розділення статусу термінів глосарія на підтверджені (`reviewed=True`) та авто-екстраговані (`reviewed=False`).
+4. Проблема 4 (гендерне узгодження): підтримка `grammatical_gender` у моделі `GlossaryItem` та явне передавання роду в промпт для перекладача.
+
+Working directory: d:\Перекладач
+Integrity mode: development
+
+## Verification Resources
+- Покрокова верифікація: `pytest tests/unit -x` після кожного виконаного пункту
+- Повний набір тестів на фініші: `pytest tests/unit tests/integration`
+- Комплексний системний прогін: `python tests/test_harness.py`
+
+## Requirements
+
+### R1. Крок 1 — Проблема 1: Обробка обірваних escape-артефактів (`\"...`)
+- У `src/translation/aya_editing_engine.py` (`_parse_json_response()`, Strategy 3) додати обробку обірваних рядків перед фінальним збереженням:
+  - Відрізати кінцевий бекслеш (`\`), якщо рядок закінчується на нього.
+  - Виконати unescape для послідовностей `\\"`, `\\n`, `\\\\`.
+  - Зняти залишковий початковий бекслеш/лапку (`\\"` або незакриту `"`).
+- Додати `logger.debug` при переході від Strategy 1 до Strategy 2/3.
+- Додати regression-тест `test_aya_parse_json_response_with_truncated_escaped_value` у `tests/unit/test_translation.py`.
+
+### R2. Крок 2 — Проблема 3: Активація та підключення конвертації одиниць виміру
+- У `src/config/settings.py` додати поле `convert_units: bool = True`.
+- Прокинути `convert_units=settings.provided.convert_units` у DI-контейнери (`src/launcher/app_context.py` та `src/config/app_context.py`).
+- Додати прапорець `--no-unit-conversion` у CLI `src/launcher/cli.py`.
+- Додати unit-тест `test_preprocessing_pipeline_convert_units_enabled_by_default_from_settings`.
+
+### R3. Крок 3 — Проблема 2: Розділення статусу термінів глосарія (`reviewed`)
+- У `src/domain/models/knowledge.py` додати поле `reviewed: bool = False` до моделі `GlossaryItem`.
+- В `src/preprocessing/pipeline.py` під час автоматичної екстракції створювати `GlossaryItem` зі статусом `reviewed=False`.
+- В `src/translation/aya_editing_engine.py` розділити формування `glossary_str` у промпті:
+  - Для `reviewed=True`: обов'язкові відповідники у форматі `- {source} => {target}`.
+  - Для `reviewed=False`: рекомендація однакового перекладу та транслітерації повторюваних імен без нав'язування заглушки `- {source}`.
+- Оновити фікстури у тестах для сумісності з новим полем.
+
+### R4. Крок 4 — Проблема 4: Гендерне узгодження персонажів (`grammatical_gender`)
+- Додати поле `grammatical_gender: Optional[str] = None` до `GlossaryItem` (значення "чоловічий", "жіночий", "середній").
+- У промпті `aya_editing_engine.py` для `reviewed`-термінів додавати граматичний рід персонажа: `- {source} => {target}, граматичний рід: {gender}`.
+- В `src/quality/pipeline.py` додати евристичну перевірку (WARNING) на невідповідність родових закінчень дієслів минулого часу імені персонажа.
+
+## Acceptance Criteria
+
+### Verification & Testing
+- [ ] Обірване на середині значення з бекслешами коректно парситься без артефактів; regression-тест проходить.
+- [ ] `settings.convert_units` за замовчуванням увімкнено (`True`), прапорець `--no-unit-conversion` дозволяє вимкнути його з CLI; тест wiring проходить.
+- [ ] Авто-екстраговані імена більше не блокують транслітерацію суворим знаком тотожності `=>`, а підтверджені терміни передаються моделі з точним перекладом та родом.
+- [ ] 100% тестів (`pytest tests/unit tests/integration` та `python tests/test_harness.py`) проходять без помилок та регресій.
+
+

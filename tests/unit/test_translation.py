@@ -246,6 +246,53 @@ def test_aya_parse_json_response_with_unescaped_internal_quotes():
     assert parsed[2] == "Вона не відповіла."
 
 
+def test_aya_parse_json_response_with_truncated_escaped_value():
+    engine = QuantizedAyaEditingEngine(device="cpu", load_in_4bit=False)
+    raw = (
+        '{\n'
+        '  "1": "Повне перше речення.",\n'
+        '  "2": \\"Друге речення з \\"лапками\\", переносом\\nрядка, шляхом C:\\\\data та обривом на бекслеші\\'
+    )
+    parsed = engine._parse_json_response(raw, expected_count=2, fallback_drafts={1: "D1", 2: "D2"})
+    assert parsed[1] == "Повне перше речення."
+    assert parsed[2] == 'Друге речення з "лапками", переносом\nрядка, шляхом C:\\data та обривом на бекслеші'
+    assert not parsed[2].startswith('\\')
+    assert not parsed[2].startswith('"')
+    assert not parsed[2].endswith('\\')
+
+    # Escaped outer quotes enclosing internal dialogue
+    raw_escaped_dialogue = (
+        '{\n'
+        '  "1": \\"Він сказав: \\"Привіт!\\" і пішов.\\"\n'
+        '}'
+    )
+    parsed_dialogue = engine._parse_json_response(raw_escaped_dialogue, expected_count=1, fallback_drafts={1: "D1"})
+    assert parsed_dialogue[1] == 'Він сказав: "Привіт!" і пішов.'
+    assert not parsed_dialogue[1].startswith('"')
+    assert not parsed_dialogue[1].startswith('\\')
+
+    # Truncated directly at end of inner dialogue
+    raw_trunc_dialogue = (
+        '{\n'
+        '  "1": \\"Він сказав: \\"Привіт!\\"\n'
+        '}'
+    )
+    parsed_trunc = engine._parse_json_response(raw_trunc_dialogue, expected_count=1, fallback_drafts={1: "D1"})
+    assert parsed_trunc[1] == 'Він сказав: "Привіт!"'
+
+    # Truncated with residual unclosed quote artifact
+    raw_residual = (
+        '{\n'
+        '  "1": \\"\\"Привіт, світе!\\n'
+        '}'
+    )
+    parsed_res = engine._parse_json_response(raw_residual, expected_count=1, fallback_drafts={1: "D1"})
+    assert parsed_res[1] == 'Привіт, світе!'
+    assert not parsed_res[1].startswith('"')
+    assert not parsed_res[1].startswith('\\')
+
+
+
 def test_aya_parse_json_response_multiline_and_zero_indexing():
     engine = QuantizedAyaEditingEngine(device="cpu", load_in_4bit=False)
     # Multiline string with literal newline
@@ -305,6 +352,42 @@ def test_aya_refine_chunk_structured_cancelled():
     ]
     res = engine.refine_chunk_structured(sentences, cancel_token=token)
     assert res == {1: "Привіт.", 2: "Світ."}
+
+
+def test_aya_glossary_formatting_reviewed_vs_unreviewed():
+    engine = QuantizedAyaEditingEngine(device="cpu", load_in_4bit=False)
+    reviewed_item = GlossaryItem(source_term="Holmes", target_term="Холмс", reviewed=True)
+    unreviewed_item = GlossaryItem(source_term="John", target_term="John", reviewed=False)
+
+    from unittest.mock import patch, MagicMock
+    with patch.object(engine, "load_model"):
+        engine.gguf_llm = MagicMock()
+        engine.gguf_llm.create_chat_completion.return_value = [
+            {"choices": [{"delta": {"content": '{"1": "Ок."}'}}]}
+        ]
+
+        sentences = [Sentence(id=uuid4(), original_text="Hello.", translated_text="Привіт.", order_index=0)]
+
+        # 1. Only reviewed
+        engine.refine_chunk_structured(sentences, glossary=[reviewed_item])
+        prompt_used = engine.gguf_llm.create_chat_completion.call_args[1]["messages"][0]["content"]
+        assert "- Holmes => Холмс" in prompt_used
+        assert "Рекомендація" not in prompt_used
+
+        # 2. Only unreviewed
+        engine.refine_chunk_structured(sentences, glossary=[unreviewed_item])
+        prompt_used = engine.gguf_llm.create_chat_completion.call_args[1]["messages"][0]["content"]
+        assert "- John => John" not in prompt_used
+        assert "- John" in prompt_used
+        assert "Рекомендація" in prompt_used
+
+        # 3. Both
+        engine.refine_chunk_structured(sentences, glossary=[reviewed_item, unreviewed_item])
+        prompt_used = engine.gguf_llm.create_chat_completion.call_args[1]["messages"][0]["content"]
+        assert "- Holmes => Холмс" in prompt_used
+        assert "- John => John" not in prompt_used
+        assert "- John" in prompt_used
+
 
 
 # ============================================================================

@@ -291,8 +291,8 @@ class TestPromptTemplateFormatting:
         """Engine formats glossary as structured bullet points `- {source} => {target}`."""
         engine = QuantizedAyaEditingEngine(device="cpu", load_in_4bit=False)
         glossary = [
-            GlossaryItem(source_term="Rabbitfolk", target_term="кролячий народ"),
-            GlossaryItem(source_term="Subs", target_term="передплатники"),
+            GlossaryItem(source_term="Rabbitfolk", target_term="кролячий народ", reviewed=True),
+            GlossaryItem(source_term="Subs", target_term="передплатники", reviewed=True),
         ]
         context = ChunkContext(previous_sentences=["Попередній контекст."])
 

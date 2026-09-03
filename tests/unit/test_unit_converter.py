@@ -309,3 +309,33 @@ class TestPreprocessingPipelineIntegration:
         pipe.process(book)
 
         assert sent.original_text == "The tower was 80 feet high."
+
+    def test_preprocessing_pipeline_convert_units_enabled_by_default_from_settings(self):
+        from src.config.settings import settings
+        from src.config.app_context import ApplicationContainer as ConfigContainer
+        from src.launcher.app_context import ApplicationContainer as LauncherContainer
+
+        assert settings.convert_units is True
+
+        for ContainerClass in (ConfigContainer, LauncherContainer):
+            container = ContainerClass()
+            container.kb_repository.override(MagicMock())
+            pipe = container.preprocessing_pipeline()
+            assert pipe.convert_units is True
+
+    def test_cli_no_unit_conversion_flag_disables_setting(self):
+        from unittest.mock import patch
+        from src.config.settings import settings
+        from src.launcher.cli import main
+
+        original_val = settings.convert_units
+        try:
+            test_args = ["cli.py", "--file", "nonexistent.txt", "--out", "out.txt", "--no-unit-conversion"]
+            with patch("sys.argv", test_args):
+                with patch("pathlib.Path.exists", return_value=False):
+                    with pytest.raises(SystemExit):
+                        main()
+            assert settings.convert_units is False
+        finally:
+            settings.convert_units = original_val
+

@@ -24,7 +24,7 @@ class TestQuantizedAya:
         engine.load_model()
         try:
             ctx = ChunkContext(previous_sentences=["Попередня історія."])
-            glossary = [GlossaryItem(source_term="Holmes", target_term="Холмс", entity_type=EntityType.CHARACTER)]
+            glossary = [GlossaryItem(source_term="Holmes", target_term="Холмс", entity_type=EntityType.CHARACTER, reviewed=True)]
             
             # First invocation
             res1 = engine.refine_chunk("Доктор Ватсон зустрів Holmes.", ctx, glossary)
@@ -43,8 +43,8 @@ class TestQuantizedAya:
         try:
             ctx = ChunkContext()
             glossary = [
-                GlossaryItem(source_term="John Watson", target_term="Джон Ватсон", entity_type=EntityType.CHARACTER),
-                GlossaryItem(source_term="221B Baker Street", target_term="Бейкер-стріт, 221-Б", entity_type=EntityType.LOCATION)
+                GlossaryItem(source_term="John Watson", target_term="Джон Ватсон", entity_type=EntityType.CHARACTER, reviewed=True),
+                GlossaryItem(source_term="221B Baker Street", target_term="Бейкер-стріт, 221-Б", entity_type=EntityType.LOCATION, reviewed=True)
             ]
             draft = "Він поїхав на 221B Baker Street разом з John Watson."
             refined = engine.refine_chunk(draft, ctx, glossary)

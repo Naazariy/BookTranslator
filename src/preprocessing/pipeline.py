@@ -90,7 +90,8 @@ class PreprocessingPipeline:
                         source_term=name,
                         target_term=name,
                         entity_type=EntityType.CHARACTER,
-                        case_sensitive=True
+                        case_sensitive=True,
+                        reviewed=False
                     )
                     items_to_add.append(item)
 

@@ -82,7 +82,15 @@ def main():
     parser = argparse.ArgumentParser(description="BookTranslator: Offline Large Document Translation System")
     parser.add_argument("--file", type=str, required=True, help="Path to the input document (e.g. book.txt)")
     parser.add_argument("--out", type=str, required=True, help="Path to the output document (e.g. book_uk.txt)")
+    parser.add_argument(
+        "--no-unit-conversion",
+        action="store_true",
+        help="Disable automatic unit conversion during preprocessing"
+    )
     args = parser.parse_args()
+
+    if args.no_unit_conversion:
+        settings.convert_units = False
 
     # Configure Logging
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")

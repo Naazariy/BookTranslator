@@ -42,6 +42,15 @@ def init_db(db_path: Path) -> None:
             )
         ''')
         
+        # Glossary Metadata Table (review status & grammatical gender)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS glossary_metadata (
+                source_term TEXT PRIMARY KEY,
+                reviewed INTEGER DEFAULT 0,
+                grammatical_gender TEXT
+            )
+        ''')
+        
         # Chunks Table for Checkpointing
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS chunk_checkpoints (

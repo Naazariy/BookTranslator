@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     aya_top_p: float = 0.9
     aya_repetition_penalty: float = 1.03
     aya_seed: Optional[int] = 42
+    convert_units: bool = True
     unit_conversion_policy: str = "metric"
     
     # Chunking Configurations

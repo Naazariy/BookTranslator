@@ -334,9 +334,9 @@ class TestDynamicGlossaryConsistencyE2E:
 
         # Populate SQLite glossary
         glossary_items = [
-            GlossaryItem(source_term="Rabbitfolk", target_term="кролячий народ", entity_type=EntityType.CHARACTER),
-            GlossaryItem(source_term="Subs", target_term="передплатники", entity_type=EntityType.TERM),
-            GlossaryItem(source_term="Played by", target_term="Виконавець ролі", entity_type=EntityType.TERM),
+            GlossaryItem(source_term="Rabbitfolk", target_term="кролячий народ", entity_type=EntityType.CHARACTER, reviewed=True),
+            GlossaryItem(source_term="Subs", target_term="передплатники", entity_type=EntityType.TERM, reviewed=True),
+            GlossaryItem(source_term="Played by", target_term="Виконавець ролі", entity_type=EntityType.TERM, reviewed=True),
         ]
         repo.add_glossary_items(glossary_items)
 
@@ -367,3 +367,37 @@ class TestDynamicGlossaryConsistencyE2E:
         chunk2_glossary = ChunkManager.filter_glossary_for_chunk(all_glossary, "The streamer thanked all Subs for their support.")
         assert len(chunk2_glossary) == 1
         assert chunk2_glossary[0].source_term == "Subs"
+
+    def test_sqlite_glossary_preserves_reviewed_status_and_gender(self, tmp_path):
+        """Verify SQLite repository round-trip preserves reviewed=True/False and grammatical_gender."""
+        db_path = tmp_path / "glossary_meta.db"
+        init_db(db_path)
+        repo = SQLiteKnowledgeBaseRepository(db_path)
+
+        items = [
+            GlossaryItem(source_term="Holmes", target_term="Холмс", reviewed=True, grammatical_gender="чоловічий"),
+            GlossaryItem(source_term="Mary", target_term="Марія", reviewed=True, grammatical_gender="жіночий"),
+            GlossaryItem(source_term="Creature", target_term="Створіння", reviewed=True, grammatical_gender="середній"),
+            GlossaryItem(source_term="AutoName", target_term="AutoName", reviewed=False, grammatical_gender=None),
+        ]
+        repo.add_glossary_items(items)
+
+        loaded = {item.source_term: item for item in repo.get_glossary()}
+        assert loaded["Holmes"].reviewed is True
+        assert loaded["Holmes"].grammatical_gender == "чоловічий"
+        assert loaded["Mary"].reviewed is True
+        assert loaded["Mary"].grammatical_gender == "жіночий"
+        assert loaded["Creature"].reviewed is True
+        assert loaded["Creature"].grammatical_gender == "середній"
+        assert loaded["AutoName"].reviewed is False
+        assert loaded["AutoName"].grammatical_gender is None
+
+        # Verify deletion cleans up both glossary and glossary_metadata
+        repo.delete_glossary_item("Holmes")
+        conn = repo._get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM glossary WHERE source_term = 'Holmes'")
+        assert cursor.fetchone()[0] == 0
+        cursor.execute("SELECT COUNT(*) FROM glossary_metadata WHERE source_term = 'Holmes'")
+        assert cursor.fetchone()[0] == 0
+
