@@ -25,8 +25,10 @@ except ImportError:
 from src.domain.interfaces.translation import IEditingEngine
 from src.domain.models.chunk import ChunkContext
 from src.domain.models.knowledge import GlossaryItem
+from src.domain.models.segment import TranslationSegment, SegmentStatus
 from src.translation.stopping_criteria import CancellationTokenStoppingCriteria
 from src.config.settings import settings
+from uuid import UUID
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +38,40 @@ from src.quality.pipeline import (
     KNOWN_PORTMANTEAU_FIXES,
     sanitize_mixed_script_words,
 )
+
+
+class SegmentRefinementResult(str):
+    """
+    Refinement result for a TranslationSegment.
+    Inherits from str for backward compatibility with string-expecting callers,
+    while carrying rich structured metadata (success, diagnostics, fallback).
+    """
+    segment_id: UUID
+    refined_text: Optional[str]
+    success: bool
+    error_message: Optional[str]
+    raw_output: Optional[str]
+    fallback_draft: Optional[str]
+
+    def __new__(
+        cls,
+        content: str,
+        segment_id: UUID,
+        success: bool,
+        refined_text: Optional[str] = None,
+        error_message: Optional[str] = None,
+        raw_output: Optional[str] = None,
+        fallback_draft: Optional[str] = None
+    ):
+        instance = super().__new__(cls, content)
+        instance.segment_id = segment_id
+        instance.refined_text = refined_text
+        instance.success = success
+        instance.error_message = error_message
+        instance.raw_output = raw_output
+        instance.fallback_draft = fallback_draft
+        return instance
+
 
 
 
@@ -100,9 +136,11 @@ class QuantizedAyaEditingEngine(IEditingEngine):
         temperature: Optional[float] = None,
         top_p: Optional[float] = None,
         repetition_penalty: Optional[float] = None,
-        seed: Optional[int] = 42
+        seed: Optional[int] = 42,
+        **kwargs: Any
     ):
-        self.model_name = model_name
+        self.model_name = kwargs.get("model_path", model_name) or model_name
+        self.gguf_path = kwargs.get("gguf_path")
         self.device = self._resolve_device(device)
         self.prompt_path = prompt_path or getattr(settings, "prompt_file_path", Path("data/prompts/editing_prompt.md"))
         self.load_in_4bit = load_in_4bit and (self.device == "cuda")
@@ -925,6 +963,506 @@ class QuantizedAyaEditingEngine(IEditingEngine):
             return fallback_drafts
 
         return self._parse_json_response(raw_generated, expected_count, fallback_drafts)
+
+    def _parse_segments_json_response(
+        self,
+        raw: str,
+        expected_segments: List[TranslationSegment]
+    ) -> Tuple[Dict[str, str], Dict[str, str]]:
+        """
+        Safely parses LLM JSON response mapping segment UUIDs to refined paragraph strings.
+        Multi-strategy parsing:
+        - Strategy 1: Direct json.loads
+        - Strategy 2: Outermost {...} or [...] extraction with trailing comma fix
+        - Strategy 3: Resilient regex extraction for "id" and "translation" pairs
+        Returns:
+            (valid_translations_map, failure_reasons_map) keyed by str(segment.id)
+        """
+        import json
+
+        translations: Dict[str, str] = {}
+        failure_reasons: Dict[str, str] = {}
+
+        if not raw or not raw.strip():
+            for seg in expected_segments:
+                failure_reasons[str(seg.id)] = "Empty or whitespace LLM response"
+            return {}, failure_reasons
+
+        cleaned_raw = raw.strip()
+        cleaned_raw = re.sub(r"<\|[^|>\n]{1,40}\|>", "", cleaned_raw).strip()
+
+        # Extract markdown code fence if present
+        fence_match = re.search(r"```(?:json|markdown)?\s*([\{\[].*?[\}\]])\s*```", cleaned_raw, re.DOTALL | re.IGNORECASE)
+        if fence_match:
+            target_str = fence_match.group(1).strip()
+        else:
+            target_str = re.sub(r"^```(?:json|markdown)?\s*\n?", "", cleaned_raw, flags=re.IGNORECASE)
+            target_str = re.sub(r"\n?```\s*$", "", target_str).strip()
+
+        parsed_data = None
+
+        # Strategy 1: Direct json.loads with strict=False
+        try:
+            parsed_data = json.loads(target_str, strict=False)
+        except Exception as e:
+            logger.debug(f"Strategy 1 segment json.loads failed ({e}); transitioning to Strategy 2.")
+
+        # Strategy 2: Extract outermost {...} or [...]
+        if parsed_data is None:
+            brace_match = re.search(r'\{.*\}', target_str, re.DOTALL)
+            if brace_match:
+                candidate = brace_match.group(0)
+                try:
+                    parsed_data = json.loads(candidate, strict=False)
+                except Exception:
+                    fixed = re.sub(r',\s*\}', '}', candidate)
+                    try:
+                        parsed_data = json.loads(fixed, strict=False)
+                    except Exception:
+                        pass
+            if parsed_data is None:
+                bracket_match = re.search(r'\[.*\]', target_str, re.DOTALL)
+                if bracket_match:
+                    candidate = bracket_match.group(0)
+                    try:
+                        parsed_data = json.loads(candidate, strict=False)
+                    except Exception:
+                        fixed = re.sub(r',\s*\]', ']', candidate)
+                        try:
+                            parsed_data = json.loads(fixed, strict=False)
+                        except Exception:
+                            pass
+
+        # Extract from parsed structured data
+        if isinstance(parsed_data, dict):
+            # Case A: {"segments": [{"id": "...", "translation": "..."}, ...]}
+            if "segments" in parsed_data:
+                seg_list = parsed_data["segments"]
+                if isinstance(seg_list, list):
+                    for item in seg_list:
+                        if isinstance(item, dict):
+                            s_id = str(item.get("id", item.get("segment_id", ""))).strip()
+                            tr = item.get("translation", item.get("text", item.get("uk", "")))
+                            if s_id and tr:
+                                translations[s_id] = str(tr)
+                elif isinstance(seg_list, dict):
+                    for k, v in seg_list.items():
+                        s_id = str(k).strip()
+                        tr = v.get("translation", v) if isinstance(v, dict) else v
+                        if s_id and tr:
+                            translations[s_id] = str(tr)
+
+            # Case B: Direct dict mapping {"<segment_uuid>": "<translation>"}
+            for k, v in parsed_data.items():
+                if k != "segments":
+                    tr = v.get("translation", v) if isinstance(v, dict) else v
+                    if tr and isinstance(tr, str):
+                        translations[str(k).strip()] = tr
+
+            # Case C: If single segment and top-level has "translation"
+            if len(expected_segments) == 1 and "translation" in parsed_data:
+                translations[str(expected_segments[0].id)] = str(parsed_data["translation"])
+
+        elif isinstance(parsed_data, list):
+            # Case D: [{"id": "...", "translation": "..."}, ...]
+            for item in parsed_data:
+                if isinstance(item, dict):
+                    s_id = str(item.get("id", item.get("segment_id", ""))).strip()
+                    tr = item.get("translation", item.get("text", item.get("uk", "")))
+                    if s_id and tr:
+                        translations[s_id] = str(tr)
+            # If 1 segment expected and 1 item in list without explicit id
+            if len(expected_segments) == 1 and len(translations) == 0 and len(parsed_data) == 1:
+                item = parsed_data[0]
+                if isinstance(item, str):
+                    translations[str(expected_segments[0].id)] = item
+                elif isinstance(item, dict) and "translation" in item:
+                    translations[str(expected_segments[0].id)] = str(item["translation"])
+
+        # Strategy 3: Resilient regex extraction
+        for seg in expected_segments:
+            seg_id_str = str(seg.id)
+            if seg_id_str not in translations:
+                # Patterns matching id & translation
+                patterns = [
+                    rf'"{seg_id_str}"\s*:\s*"(.*?)(?="[\s,\}}\]]|\Z)',
+                    rf'"id"\s*:\s*["\']?{seg_id_str}["\']?\s*,\s*"translation"\s*:\s*"(.*?)(?="[\s,\}}\]]|\Z)',
+                    rf'"translation"\s*:\s*"(.*?)"\s*,\s*"id"\s*:\s*["\']?{seg_id_str}["\']?',
+                ]
+                for p in patterns:
+                    m = re.search(p, target_str, re.DOTALL | re.IGNORECASE)
+                    if m:
+                        val = m.group(1).strip()
+                        val = val.replace('\\"', '"').replace('\\n', '\n').replace('\\\\', '\\')
+                        while val.endswith('\\'):
+                            val = val[:-1]
+                        if val.endswith('"') and not val.startswith('"'):
+                            val = val[:-1]
+                        translations[seg_id_str] = val
+                        break
+
+            # If 1 segment expected and still not found, try searching general "translation": "..." only if no explicit ID was provided
+            if seg_id_str not in translations and len(expected_segments) == 1 and '"id"' not in target_str.lower():
+                m = re.search(r'"translation"\s*:\s*"(.*?)(?="[\s,\}}\]]|\Z)', target_str, re.DOTALL | re.IGNORECASE)
+                if m:
+                    val = m.group(1).strip()
+                    val = val.replace('\\"', '"').replace('\\n', '\n').replace('\\\\', '\\')
+                    while val.endswith('\\'):
+                        val = val[:-1]
+                    if val.endswith('"') and not val.startswith('"'):
+                        val = val[:-1]
+                    translations[seg_id_str] = val
+
+        # Match to expected segments (including hyphen-free or case-insensitive UUID matching)
+        valid_map: Dict[str, str] = {}
+        for seg in expected_segments:
+            seg_id_str = str(seg.id)
+            seg_id_norm = seg_id_str.replace("-", "").lower()
+
+            found_text = translations.get(seg_id_str)
+            if not found_text:
+                for k, v in translations.items():
+                    if k.replace("-", "").lower() == seg_id_norm:
+                        found_text = v
+                        break
+
+            if found_text and found_text.strip():
+                valid_map[seg_id_str] = self._sanitize_output(found_text.strip())
+            else:
+                failure_reasons[seg_id_str] = f"No valid translation found for segment {seg_id_str} in LLM output"
+
+        return valid_map, failure_reasons
+
+    def refine_segments_structured(
+        self,
+        segments: List[TranslationSegment],
+        prompt_context: Optional[Any] = None,
+        context_builder: Optional[Any] = None,
+        prev_segments: Optional[List[TranslationSegment]] = None,
+        summary: Optional[str] = None,
+        cancel_token: Optional[Any] = None,
+        prompt_contexts: Optional[Any] = None,
+        **kwargs: Any
+    ) -> Dict[Any, SegmentRefinementResult]:
+        """
+        Refines a batch of TranslationSegments at paragraph level.
+        Enforces visible failure: unparseable output transitions segment to FAILED.
+        Never silently marks draft as successful.
+        """
+        if not segments:
+            return {}
+
+        results: Dict[Any, SegmentRefinementResult] = {}
+
+        # 1. Check cancellation before start
+        if _is_cancelled(cancel_token):
+            logger.info("refine_segments_structured cancelled before start.")
+            for seg in segments:
+                diag = "Stage 2 execution cancelled by user before generation"
+                seg.refined_translation = None
+                try:
+                    seg.transition_to(SegmentStatus.FAILED)
+                except Exception:
+                    seg.status = SegmentStatus.FAILED
+                seg.error_message = diag
+                res = SegmentRefinementResult(
+                    content="",
+                    segment_id=seg.id,
+                    success=False,
+                    refined_text=None,
+                    error_message=diag,
+                    raw_output=None,
+                    fallback_draft=seg.draft_translation
+                )
+                results[seg.id] = res
+                results[str(seg.id)] = res
+            return results
+
+        # 2. Build prompt text
+        if prompt_context is not None:
+            if hasattr(prompt_context, "prompt_text"):
+                prompt = prompt_context.prompt_text
+            elif isinstance(prompt_context, str):
+                prompt = prompt_context
+            elif isinstance(prompt_context, dict) and "prompt_text" in prompt_context:
+                prompt = prompt_context["prompt_text"]
+            else:
+                prompt = str(prompt_context)
+        elif prompt_contexts is not None:
+            if isinstance(prompt_contexts, list) and len(prompt_contexts) > 0:
+                first = prompt_contexts[0]
+                prompt = getattr(first, "prompt_text", str(first))
+            elif hasattr(prompt_contexts, "prompt_text"):
+                prompt = prompt_contexts.prompt_text
+            else:
+                prompt = str(prompt_contexts)
+        elif context_builder is not None:
+            ctx = context_builder.build_batch_context(
+                segments=segments,
+                prev_segments=prev_segments,
+                summary=summary
+            )
+            prompt = ctx.prompt_text
+        else:
+            from src.context.builder import ContextBuilder
+            cb = ContextBuilder()
+            ctx = cb.build_batch_context(
+                segments=segments,
+                prev_segments=prev_segments,
+                summary=summary
+            )
+            prompt = ctx.prompt_text
+
+        # 3. Model Availability Check
+        if not self.model and not self.gguf_llm:
+            self.load_model()
+
+        if not self.model and not self.gguf_llm:
+            logger.warning("No model available for refine_segments_structured; marking segments as FAILED.")
+            for seg in segments:
+                diag = f"Stage 2 LLM execution error for segment {seg.id}: No loaded model available"
+                seg.refined_translation = None
+                try:
+                    seg.transition_to(SegmentStatus.FAILED)
+                except Exception:
+                    seg.status = SegmentStatus.FAILED
+                seg.error_message = diag
+                res = SegmentRefinementResult(
+                    content="",
+                    segment_id=seg.id,
+                    success=False,
+                    refined_text=None,
+                    error_message=diag,
+                    raw_output=None,
+                    fallback_draft=seg.draft_translation
+                )
+                results[seg.id] = res
+                results[str(seg.id)] = res
+            return results
+
+        stop_tokens = [
+            "<|endoftext|>",
+            "<|END_OF_TURN_TOKEN|>",
+            "<|START_OF_TURN_TOKEN|>",
+            "<|END_OF_USER_TOKEN|>",
+            "<|END_OF_ASSISTANT_TOKEN|>",
+            "<|im_end|>",
+            "<|im_start|>",
+            "</s>"
+        ]
+
+        # Use deterministic parameters for Stage 2
+        temp = 0.0 if getattr(settings, "stage2_deterministic", True) else self.temperature
+        top_p = getattr(settings, "top_p", 1.0)
+        rep_penalty = getattr(settings, "repetition_penalty", 1.02)
+        do_sample = getattr(settings, "do_sample", False)
+
+        raw_generated = ""
+
+        # 4. GGUF Inference Path
+        if self.gguf_llm is not None:
+            try:
+                if _is_cancelled(cancel_token):
+                    raise RuntimeError("Cancelled")
+
+                max_tokens = min(max(256, int(len(prompt.split()) * 2) + 128), 4096)
+                tokens = []
+                try:
+                    stream_resp = self.gguf_llm.create_chat_completion(
+                        messages=[{"role": "user", "content": prompt}],
+                        max_tokens=max_tokens,
+                        temperature=temp,
+                        top_p=top_p,
+                        repeat_penalty=rep_penalty,
+                        stop=stop_tokens,
+                        stream=True
+                    )
+                    for chunk_resp in stream_resp:
+                        if _is_cancelled(cancel_token):
+                            logger.info("GGUF chat generation cancelled during streaming.")
+                            raise RuntimeError("Cancelled")
+                        delta = chunk_resp.get("choices", [{}])[0].get("delta", {}).get("content", "")
+                        if delta:
+                            tokens.append(delta)
+                    raw_generated = "".join(tokens)
+                except RuntimeError:
+                    raise
+                except Exception:
+                    tokens.clear()
+                    try:
+                        stream_resp = self.gguf_llm.create_completion(
+                            prompt=prompt,
+                            max_tokens=max_tokens,
+                            temperature=temp,
+                            top_p=top_p,
+                            repeat_penalty=rep_penalty,
+                            stop=stop_tokens,
+                            stream=True
+                        )
+                        for chunk_resp in stream_resp:
+                            if _is_cancelled(cancel_token):
+                                raise RuntimeError("Cancelled")
+                            text_delta = chunk_resp.get("choices", [{}])[0].get("text", "")
+                            if text_delta:
+                                tokens.append(text_delta)
+                        raw_generated = "".join(tokens)
+                    except RuntimeError:
+                        raise
+                    except Exception:
+                        resp = self.gguf_llm.create_completion(
+                            prompt=prompt,
+                            max_tokens=max_tokens,
+                            temperature=temp,
+                            top_p=top_p,
+                            repeat_penalty=rep_penalty,
+                            stop=stop_tokens
+                        )
+                        raw_generated = resp["choices"][0]["text"]
+
+            except RuntimeError:
+                for seg in segments:
+                    diag = "Stage 2 execution cancelled by user"
+                    seg.refined_translation = None
+                    try:
+                        seg.transition_to(SegmentStatus.FAILED)
+                    except Exception:
+                        seg.status = SegmentStatus.FAILED
+                    seg.error_message = diag
+                    res = SegmentRefinementResult(
+                        content="",
+                        segment_id=seg.id,
+                        success=False,
+                        refined_text=None,
+                        error_message=diag,
+                        raw_output=None,
+                        fallback_draft=seg.draft_translation
+                    )
+                    results[seg.id] = res
+                    results[str(seg.id)] = res
+                return results
+            except Exception as e:
+                logger.error(f"GGUF generation error in refine_segments_structured: {e}")
+                raw_generated = ""
+
+        # 5. Transformers Inference Path
+        elif self.model is not None:
+            try:
+                target_device = getattr(self.model, "device", self.device)
+                messages = [{"role": "user", "content": prompt}]
+
+                if hasattr(self.tokenizer, "apply_chat_template") and self.tokenizer.chat_template is not None:
+                    try:
+                        inputs = self.tokenizer.apply_chat_template(
+                            messages,
+                            tokenize=True,
+                            add_generation_prompt=True,
+                            return_tensors="pt",
+                            return_dict=True
+                        )
+                    except Exception:
+                        inputs = self.tokenizer(prompt, return_tensors="pt")
+                else:
+                    inputs = self.tokenizer(prompt, return_tensors="pt")
+
+                if hasattr(inputs, "items"):
+                    inputs_dict = {k: v.to(target_device) for k, v in inputs.items()}
+                    input_length = inputs_dict["input_ids"].shape[-1]
+                else:
+                    inputs_dict = {"input_ids": inputs.to(target_device)}
+                    input_length = inputs.shape[-1]
+
+                dynamic_max_new_tokens = min(max(256, int(input_length * 1.5) + 128), 4096)
+                criteria_list = StoppingCriteriaList()
+                if cancel_token is not None:
+                    criteria_list.append(CancellationTokenStoppingCriteria(cancel_token))
+
+                pad_token_id = self.tokenizer.pad_token_id or self.tokenizer.eos_token_id
+
+                with torch.no_grad():
+                    outputs = self.model.generate(
+                        **inputs_dict,
+                        max_new_tokens=dynamic_max_new_tokens,
+                        temperature=temp if temp > 0.0 else None,
+                        top_p=top_p if temp > 0.0 else None,
+                        repetition_penalty=rep_penalty,
+                        do_sample=do_sample,
+                        stopping_criteria=criteria_list,
+                        pad_token_id=pad_token_id
+                    )
+
+                if _is_cancelled(cancel_token):
+                    for seg in segments:
+                        diag = "Stage 2 execution cancelled by user"
+                        seg.refined_translation = None
+                        try:
+                            seg.transition_to(SegmentStatus.FAILED)
+                        except Exception:
+                            seg.status = SegmentStatus.FAILED
+                        seg.error_message = diag
+                        res = SegmentRefinementResult(
+                            content="",
+                            segment_id=seg.id,
+                            success=False,
+                            refined_text=None,
+                            error_message=diag,
+                            raw_output=None,
+                            fallback_draft=seg.draft_translation
+                        )
+                        results[seg.id] = res
+                        results[str(seg.id)] = res
+                    return results
+
+                raw_generated = self.tokenizer.decode(outputs[0][input_length:], skip_special_tokens=True).strip()
+
+            except Exception as e:
+                logger.error(f"Transformers generation error in refine_segments_structured: {e}")
+                raw_generated = ""
+
+        # 6. Parse Output & Enforce Visible Failure
+        valid_map, failure_reasons = self._parse_segments_json_response(raw_generated, segments)
+
+        for seg in segments:
+            seg_id_str = str(seg.id)
+            if seg_id_str in valid_map:
+                translated = valid_map[seg_id_str]
+                seg.refined_translation = translated
+                try:
+                    seg.transition_to(SegmentStatus.EDITED)
+                except Exception:
+                    seg.status = SegmentStatus.EDITED
+                seg.error_message = None
+                res = SegmentRefinementResult(
+                    content=translated,
+                    segment_id=seg.id,
+                    success=True,
+                    refined_text=translated,
+                    error_message=None,
+                    raw_output=raw_generated,
+                    fallback_draft=seg.draft_translation
+                )
+            else:
+                reason = failure_reasons.get(seg_id_str, "Unparseable LLM output")
+                diag = f"Stage 2 LLM parsing failure for segment {seg.id}: {reason}. Response snippet: {raw_generated[:200]}"
+                seg.refined_translation = None
+                try:
+                    seg.transition_to(SegmentStatus.FAILED)
+                except Exception:
+                    seg.status = SegmentStatus.FAILED
+                seg.error_message = diag
+                logger.warning(diag)
+                res = SegmentRefinementResult(
+                    content="",
+                    segment_id=seg.id,
+                    success=False,
+                    refined_text=None,
+                    error_message=diag,
+                    raw_output=raw_generated,
+                    fallback_draft=seg.draft_translation
+                )
+            results[seg.id] = res
+            results[seg_id_str] = res
+
+        return results
 
     def refine_chunk(
         self,

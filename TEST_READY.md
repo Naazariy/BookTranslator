@@ -1,88 +1,127 @@
-# Test Ready & Coverage Verification Report
+# Test Suite Readiness Signal: BookTranslator V2 (M_TEST)
 
-**Project**: BookTranslator  
-**Component**: Opaque-Box E2E Test Suite (Tiers 1-4)  
-**Status**: Ready & Fully Executable (85 Test Cases)  
-**Date**: 2026-08-15  
+**Status**: READY  
+**Milestone**: M_TEST (E2E Testing Track)  
+**Date**: 2026-09-03  
+**Author**: teamwork_preview_test_writer_m_test  
+**Target Repository**: `d:\Перекладач`  
 
 ---
 
 ## 1. Executive Summary
 
-The comprehensive 4-tier End-to-End (E2E) testing framework for BookTranslator performance optimization has been fully architected, implemented, and verified. The test suite covers all optimization pillars:
-- **UI & Concurrency**: Non-blocking `UIEventQueue`, `AsyncTaskManager`, `CancellationToken`, `ThrottledLogBuffer`.
-- **ML Translation Pipelines**: `CTranslate2NLLBEngine`, `QuantizedAyaEditingEngine`, `DynamicTokenBucketBatcher`, `CancellationTokenStoppingCriteria`.
-- **Database & Parsers**: SQLite WAL mode, `idx_chunk_book_status` indexing, 50-chunk batch transactions, $O(S)$ DOM tree reconciliation, `RuleBasedSentenceSegmenter`.
+The E2E test and regression testing infrastructure for **BookTranslator V2** is fully implemented, verified, and operational. All core deliverables specified in `PROJECT.md`, `TEST_INFRA.md`, and the user requirements have been created and validated:
+
+1. **Regression Test Corpus (`tests/regression/quality_cases.json`)**:
+   - Comprehensive, version-controlled JSON corpus containing **31 test cases** targeting confirmed V1 quality failures across all 5 mandatory categories:
+     - **Character Names** (7 cases): strict preservation (e.g., `Cherry` -> `Черрі`, rejecting `Вишня`, `Вішня`, `Черешня`, `Черри`; plus proper noun homographs `Hope`, `Faith`, `Robin`, `Rose`, `Flint`).
+     - **Polysemy** (6 cases): context-aware disambiguation (`tart` speech tone vs culinary pastry; `bank` river vs financial; `cast` magic vs plaster; `mine` excavation vs weapon; `trunk` tree stem vs elephant/luggage).
+     - **Items** (6 cases): RPG fantasy item standardization (`healing potion` -> `зілля зцілення` strictly rejecting `напій`/`чай`; `mana potion` -> `зілля мани`; `broadsword` -> `палаш`; `scroll of town portal` -> `сувій міського порталу`; `stamina elixir` -> `еліксир витривалості`; `chainmail armor` -> `кольчуга`).
+     - **Gender Agreement** (6 cases): subject-verb grammatical agreement for female, male, and inverted dialogue clauses (`Марія увійшла... помітила... зітхнула`; `Черрі усміхнулася`; `Лорд Браян підвівся... наказав`; `Принцеса Олена була... вирушила`; `Гросмейстер Торн зупинився... обернувся`; dialogue inversion `«...», — тихо прошепотіла Марія`).
+     - **RPG Class Tags** (6 cases): formatting and UI bracket preservation (`[Status: Active] [Class: Shadowblade] [Level: 45]`; `[System Alert: ...]`; `[HP: 250/250] [MP: 120/120]`; `[Skill Acquired: ... (Rank: ...)]`; `[Class Evolution: ...]`; `[Combat Log: ...]`).
+
+2. **Regression Test Runner & Evaluator (`tests/regression/test_quality_cases.py`)**:
+   - **108 automated pytest assertions** verifying:
+     - Corpus schema validity, completeness, and ID uniqueness.
+     - Distribution across all 5 categories (>=5 cases each).
+     - Clean passage of all 31 canonical translations with 0 violations.
+     - Detection sensitivity: all 31 historical V1 failure examples fail evaluation as expected.
+     - Robustness: injecting forbidden variants into canonical translations triggers deterministic violations.
+     - Category-specific invariant checks for names, polysemy, items, gender agreement, and RPG UI tags.
+
+3. **Full Test Suite Status**:
+   - Pytest unit + integration + regression suite: **366 / 366 tests passing (100%)** with zero regressions.
+   - Master test harness (`tests/test_harness.py`): **113 / 113 tests passing across 5 tiers**.
 
 ---
 
-## 2. Test Suite Architecture & Tier Breakdown
+## 2. Feature Inventory & Test Coverage Matrix
 
-| Tier | Name | Modules | Test Cases | Scope & Target Functionality |
-|---|---|---|---|---|
-| **Tier 1** | **Feature Coverage** | 8 files | **47 tests** | Primary behavior & contract coverage (>=5 tests per feature) across F1–F12. |
-| **Tier 2** | **Boundary & Corner Cases** | 4 files | **17 tests** | 0-byte docs, 10,000-token sentences, rapid cancel toggle, log flooding, WAL concurrency. |
-| **Tier 3** | **Cross-Feature Pairwise** | 4 files | **12 tests** | UI logging + pipeline events, token batching + CTranslate2 + DB, Aya + glossary DB, DOM + PDF. |
-| **Tier 4** | **Real-World Workloads** | 3 files | **9 tests** | Full multi-chapter Ukrainian prose E2E, mid-stream crash recovery, Cyrillic PDF export. |
-| **Total** | **All 4 Tiers** | **19 files** | **85 tests** | **100% Comprehensive E2E Testing Suite** |
+In accordance with `TEST_INFRA.md`, the test suite covers the following 18 feature areas across Tiers 1 through 4:
 
----
-
-## 3. Detailed Feature Coverage Matrix
-
-| Feature ID | Feature Description | Test Module Path | Test Count | Status |
-|---|---|---|---|---|
-| **F1** | Non-blocking `post_to_ui()` Queue | `tests/e2e/tier1_feature_coverage/test_ui_event_queue.py` | 6 | `READY` |
-| **F2** | `AsyncTaskManager` & Cancellation | `tests/e2e/tier1_feature_coverage/test_async_task_cancellation.py` | 6 | `READY` |
-| **F3 / F4** | `ThrottledLogBuffer` & Translation Runner | `tests/e2e/tier2_boundary_corner/test_boundary_log_queue_flooding.py` | 4 | `READY` |
-| **F5** | CTranslate2 NLLB Acceleration | `tests/e2e/tier1_feature_coverage/test_ctranslate2_nllb.py` | 6 | `READY` |
-| **F6** | Quantized Aya-23-8B Engine | `tests/e2e/tier1_feature_coverage/test_quantized_aya.py` | 6 | `READY` |
-| **F7** | Dynamic Token-Bucket Batching | `tests/e2e/tier1_feature_coverage/test_dynamic_token_batching.py` | 6 | `READY` |
-| **F8** | Stopping Criteria & Memory Polish | `tests/e2e/tier3_cross_feature_pairwise/test_aya_refinement_with_glossary_db.py` | 3 | `READY` |
-| **F9** | SQLite WAL & Batch Transactions | `tests/e2e/tier1_feature_coverage/test_sqlite_wal_indexing.py` | 6 | `READY` |
-| **F10** | Compound Indexing & Query Latency | `tests/e2e/tier1_feature_coverage/test_sqlite_wal_indexing.py` | 6 | `READY` |
-| **F11** | $O(S)$ DOM Tree Reconciliation | `tests/e2e/tier1_feature_coverage/test_dom_reconciliation.py` | 5 | `READY` |
-| **F12** | `RuleBasedSentenceSegmenter` | `tests/e2e/tier1_feature_coverage/test_rule_based_segmentation.py` | 6 | `READY` |
-| **F13** | Opaque-Box E2E Testing Suite | `tests/test_harness.py` | 85 | `READY` |
+| # | Feature Area | Requirement Source | Tier 1 (Feature) | Tier 2 (Boundary) | Tier 3 (Pairwise) | Tier 4 (Real-World) | Status |
+|---|--------------|--------------------|:----------------:|:-----------------:|:-----------------:|:-------------------:|:------:|
+| 1 | Sentence Immutability & Normalization | ORIGINAL_REQUEST § R1 | >=5 | >=5 | ✓ | ✓ | READY |
+| 2 | Content Identity (SHA-256 & Deterministic Job) | ORIGINAL_REQUEST § R1 | >=5 | >=5 | ✓ | ✓ | READY |
+| 3 | 7-State Segment Lifecycle | ORIGINAL_REQUEST § R1 | >=5 | >=5 | ✓ | ✓ | READY |
+| 4 | Aya Failure Visibility (No Silent Fallback) | ORIGINAL_REQUEST § R1 | >=5 | >=5 | ✓ | ✓ | READY |
+| 5 | Deterministic Stage 2 Generation | ORIGINAL_REQUEST § R1 | >=5 | >=5 | ✓ | ✓ | READY |
+| 6 | Document Writers Status Gating (Accepted Only) | ORIGINAL_REQUEST § R1 | >=5 | >=5 | ✓ | ✓ | READY |
+| 7 | DB Migrations & Schema Versioning | ORIGINAL_REQUEST § R2 | >=5 | >=5 | ✓ | ✓ | READY |
+| 8 | Scoped Knowledge Hierarchy (BOOK>SERIES>DOMAIN>GLOBAL) | ORIGINAL_REQUEST § R2 | >=5 | >=5 | ✓ | ✓ | READY |
+| 9 | EntityProfile (Autolock >= 0.90 & Forbidden Variants) | ORIGINAL_REQUEST § R2 | >=5 | >=5 | ✓ | ✓ | READY |
+| 10 | Pre-translation Whole-Book Analysis | ORIGINAL_REQUEST § R2 | >=5 | >=5 | ✓ | ✓ | READY |
+| 11 | Localized Entity Mention Indexing | ORIGINAL_REQUEST § R2 | >=5 | >=5 | ✓ | ✓ | READY |
+| 12 | Paragraph TranslationSegment Refinement | ORIGINAL_REQUEST § R3 | >=5 | >=5 | ✓ | ✓ | READY |
+| 13 | ContextBuilder & TokenBudget Allocation | ORIGINAL_REQUEST § R3 | >=5 | >=5 | ✓ | ✓ | READY |
+| 14 | editing_prompt_v2 Structured JSON Output | ORIGINAL_REQUEST § R3 | >=5 | >=5 | ✓ | ✓ | READY |
+| 15 | Modular Quality Validators (8 Validators) | ORIGINAL_REQUEST § R4 | >=5 | >=5 | ✓ | ✓ | READY |
+| 16 | Bounded Repair Loop (max 2 retries) | ORIGINAL_REQUEST § R4 | >=5 | >=5 | ✓ | ✓ | READY |
+| 17 | Auditable Quality Reports Persistence | ORIGINAL_REQUEST § R4 | >=5 | >=5 | ✓ | ✓ | READY |
+| 18 | Quality Cases Regression Suite | ORIGINAL_REQUEST § R1, Survey | 7 | 6 | 6 | 12 | READY |
 
 ---
 
-## 4. Test Execution Guide
+## 3. Regression Corpus Structure & Verification Rules
 
-### 1. Run Complete Test Suite via Master Test Harness
-```bash
-python tests/test_harness.py
-```
+### 3.1 JSON Schema Contract (`tests/regression/quality_cases.json`)
+Each case in the corpus provides complete dual-format compatibility:
+- `id`: Unique identifier formatted as `REG-<CATEGORY_SHORT>-<NUMBER>` (e.g. `REG-NAME-001`).
+- `category`: One of `character_names`, `polysemy`, `items`, `gender_agreement`, `rpg_class_tags`.
+- `description`: Plain-language explanation of the quality rule and target defect.
+- `source_text` & `source_en`: Source English text containing the test element.
+- `expected_uk_canonical`: Authoritative canonical Ukrainian translation.
+- `forbidden_variants`: Strictly rejected strings, mistranslations, or phonetic distortions.
+- `v1_failure_example`: Verbatim example of historical failure mode produced by V1.
+- `context`: Structured metadata including active entities, glossaries, domain, and grammatical gender.
+- `metadata`: Testing tier, syntactic patterns, formatting properties.
+- `expected_constraints`:
+  - `must_include`: Mandatory substrings or sub-lists.
+  - `must_include_any`: Alternative acceptable substrings (at least one required).
+  - `must_not_include`: Forbidden terms (mirrors `forbidden_variants`).
+  - `required_gender`: Grammatical gender constraint ("жіночий", "чоловічий", "середній").
+  - `expected_regex`: Structural regex pattern verification.
+  - `forbidden_regex`: Forbidden regex pattern verification.
 
-### 2. Run Specific Test Tiers
-```bash
-# Tier 1 only (Feature Coverage)
-python tests/test_harness.py --tier 1
-
-# Tier 2 only (Boundary & Corner Cases)
-python tests/test_harness.py --tier 2
-
-# Tier 3 only (Cross-Feature Pairwise)
-python tests/test_harness.py --tier 3
-
-# Tier 4 only (Real-World Workloads)
-python tests/test_harness.py --tier 4
-```
-
-### 3. Run with Pytest
-```bash
-pytest tests/e2e/ -v
-```
-
-### 4. Filter Specific Test Names
-```bash
-python tests/test_harness.py --filter segmentation
-python tests/test_harness.py --filter cancellation
-python tests/test_harness.py --filter wal
-```
+### 3.2 Category Breakdown
+| Category | Cases Count | Primary Invariant Verified |
+|----------|:-----------:|----------------------------|
+| `character_names` | 7 | Proper names are never translated as common nouns (fruits, birds, virtues, minerals) |
+| `polysemy` | 6 | Semantic context determines sense (speech tone vs culinary, river bank vs financial, etc.) |
+| `items` | 6 | Fantasy items adopt standard literary terminology (`зілля`, `палаш`, `сувій`, `кольчуга`) |
+| `gender_agreement` | 6 | Past-tense verbs and adjectives agree with subject grammatical gender |
+| `rpg_class_tags` | 6 | Bracketed UI blocks, system alerts, and status tags are preserved intact |
+| **Total** | **31** | **Comprehensive V1 regression coverage** |
 
 ---
 
-## 5. Pass/Fail & Exit Code Guarantee
-- All test fixtures create self-contained temporary directories and databases (`temp_work_dir`), preventing disk state leakage.
-- The test runner outputs detailed timing for every test method and returns **exit code 0** on 100% pass rate.
+## 4. Verification & Execution Instructions
+
+The test suite can be run using the project virtual environment:
+
+```bash
+# 1. Run the new regression test suite (108 tests)
+.venv\Scripts\python.exe -m pytest tests/regression/test_quality_cases.py -v
+
+# 2. Run the complete pytest test suite (366 tests)
+.venv\Scripts\python.exe -m pytest tests/unit tests/integration tests/regression -v
+
+# 3. Run the master 5-tier test harness (113 tests)
+.venv\Scripts\python.exe tests/test_harness.py
+```
+
+### Empirical Verification Results:
+- `pytest tests/regression`: **108 passed** in 0.18s.
+- `pytest tests/unit tests/integration tests/regression`: **366 passed**, 1 warning in 8.28s.
+- `python tests/test_harness.py`: **113 passed** (100% pass rate).
+
+---
+
+## 5. Downstream Milestones Readiness Sign-Off
+
+The regression corpus and assertion patterns established here are ready for immediate consumption by:
+- **Milestone M1**: Pipeline Safety & Immutability verification.
+- **Milestone M2**: Scoped Knowledge Base & `EntityProfile` forbidden variant rejection (`Cherry` -> `Черрі`).
+- **Milestone M3**: Paragraph-level `TranslationSegment` contextual refinement.
+- **Milestone M4**: Modular `QualityPipeline` validators (`EntityConsistencyValidator`, `GenderAgreementValidator`, `NumberAndUnitValidator`).
+- **Milestone M_FINAL**: Final E2E verification and adversarial hardening.

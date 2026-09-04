@@ -55,14 +55,14 @@ class PreprocessingPipeline:
             for paragraph in chapter.paragraphs:
                 for sentence in paragraph.sentences:
                     if sentence.original_text:
-                        original = sentence.original_text
                         self.unit_converter.convert_sentence(
                             sentence,
                             target_lang=target_lang,
                             policy=active_policy
                         )
-                        if sentence.original_text != original:
+                        if sentence.normalized_source_text and sentence.normalized_source_text != sentence.original_text:
                             converted_count += 1
+
 
         logger.info(f"Unit conversion completed: {converted_count} sentence(s) updated.")
         return book

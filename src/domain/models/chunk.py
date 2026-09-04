@@ -1,16 +1,23 @@
 from pydantic import BaseModel, Field
-from typing import Optional, List
+from typing import Optional, List, Union
 from enum import Enum
 from uuid import UUID, uuid4
 from src.domain.models.document import Sentence
 from src.domain.models.knowledge import GlossaryItem
+from src.domain.models.segment import SegmentStatus, IllegalStateTransitionError, validate_segment_transition
 
 
 class ChunkStatus(str, Enum):
     PENDING = "PENDING"
     DRAFT_COMPLETED = "DRAFT_COMPLETED"
-    REFINED = "REFINED"
+    EDITED = "EDITED"
+    VALIDATING = "VALIDATING"
+    ACCEPTED = "ACCEPTED"
+    REVIEW_REQUIRED = "REVIEW_REQUIRED"
     FAILED = "FAILED"
+    # Legacy backward compatibility
+    REFINED = "REFINED"
+
 
 
 class ChunkContext(BaseModel):
@@ -29,7 +36,7 @@ class TranslationChunk(BaseModel):
     target_sentence_ids: List[UUID] = Field(default_factory=list)
     token_count: int = 0
     context: ChunkContext = Field(default_factory=ChunkContext)
-    status: ChunkStatus = ChunkStatus.PENDING
+    status: Union[ChunkStatus, SegmentStatus] = ChunkStatus.PENDING
     draft_translation: Optional[str] = None
     final_translation: Optional[str] = None
     error_message: Optional[str] = None

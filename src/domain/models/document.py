@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Any
 from uuid import UUID, uuid4
 
 
@@ -14,10 +14,17 @@ class InlineTagMap(BaseModel):
 
 class Sentence(BaseModel):
     id: UUID = Field(default_factory=uuid4)
-    original_text: str
+    original_text: str = Field(..., frozen=True)
+    normalized_source_text: Optional[str] = None
     translated_text: Optional[str] = None
     order_index: int = 0
+    status: Optional[Any] = None
     tag_map: Dict[str, InlineTagMap] = Field(default_factory=dict)
+
+    @property
+    def source_for_translation(self) -> str:
+        """Returns normalized_source_text if populated, otherwise original_text."""
+        return self.normalized_source_text if self.normalized_source_text is not None else self.original_text
 
 
 class Paragraph(BaseModel):
@@ -42,4 +49,7 @@ class Book(BaseModel):
     chapters: List[Chapter] = Field(default_factory=list)
     source_language: str = "en"
     target_language: str = "uk"
+    job_id: Optional[str] = None
+    fingerprint: Optional[str] = None
     metadata: Dict[str, str] = Field(default_factory=dict)
+

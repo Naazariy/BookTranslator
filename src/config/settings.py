@@ -21,10 +21,21 @@ class Settings(BaseSettings):
     aya_model_name: str = "CohereLabs/tiny-aya-global"
     device: str = "cuda"
     offline_mode: bool = True
+    # Stage 2 Deterministic Generation Defaults (V2)
+    stage2_deterministic: bool = True
+    temperature: float = 0.0
+    do_sample: bool = False
+    top_p: float = 1.0
+    repetition_penalty: float = 1.02
+
+    # Aya Model Hyperparameters (calibrated defaults)
     aya_temperature: float = 0.2
+    aya_do_sample: bool = False
     aya_top_p: float = 0.9
     aya_repetition_penalty: float = 1.03
     aya_seed: Optional[int] = 42
+
+
     convert_units: bool = True
     unit_conversion_policy: str = "metric"
     

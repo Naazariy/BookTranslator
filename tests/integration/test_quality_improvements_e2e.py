@@ -144,17 +144,22 @@ class TestDeterministicUnitConversionE2E:
         )
         converted_book = preprocessor.convert_book_units(book)
 
-        # Verify converted text in sentences
+        # Verify converted text in normalized_source_text and immutability of original_text
         p_sents = converted_book.chapters[0].paragraphs[0].sentences
         # 80 feet -> 24 метри (or 24.4 м), 15 ft -> 4.6 м
-        assert "24 метри" in p_sents[0].original_text or "24 м" in p_sents[0].original_text or "24.4 м" in p_sents[0].original_text
-        assert "4.6 м" in p_sents[0].original_text or "4.6 метра" in p_sents[0].original_text
+        assert "24 метри" in p_sents[0].normalized_source_text or "24 м" in p_sents[0].normalized_source_text or "24.4 м" in p_sents[0].normalized_source_text
+        assert "4.6 м" in p_sents[0].normalized_source_text or "4.6 метра" in p_sents[0].normalized_source_text
+        assert "80 feet" in p_sents[0].original_text and "15 ft" in p_sents[0].original_text
         # 5 miles -> 8 кілометрів / 8 км
-        assert "8 кілометрів" in p_sents[1].original_text or "8 км" in p_sents[1].original_text
+        assert "8 кілометрів" in p_sents[1].normalized_source_text or "8 км" in p_sents[1].normalized_source_text
+        assert "5 miles" in p_sents[1].original_text
         # 100 lbs -> 45.4 кг
-        assert "45.4 кг" in p_sents[2].original_text or "45.4 кілограма" in p_sents[2].original_text
+        assert "45.4 кг" in p_sents[2].normalized_source_text or "45.4 кілограма" in p_sents[2].normalized_source_text
+        assert "100 lbs" in p_sents[2].original_text
         # 72 °F -> 22 °C
-        assert "22 °C" in p_sents[3].original_text
+        assert "22 °C" in p_sents[3].normalized_source_text
+        assert "72 °F" in p_sents[3].original_text
+
 
     def test_ukrainian_grammar_agreement_across_inflection_cases(self):
         """Verifies full Slavic grammatical agreement (1, 2-4, 5-20, decimals) across converted units."""

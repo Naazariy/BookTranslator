@@ -179,4 +179,121 @@ Integrity mode: development
 - [ ] Авто-екстраговані імена більше не блокують транслітерацію суворим знаком тотожності `=>`, а підтверджені терміни передаються моделі з точним перекладом та родом.
 - [ ] 100% тестів (`pytest tests/unit tests/integration` та `python tests/test_harness.py`) проходять без помилок та регресій.
 
+## 2026-09-03T16:52:26Z
+
+# Teamwork Project Prompt — Draft
+
+> Status: Launched
+> Goal: Craft prompt → get user approval → delegate to teamwork_preview
+> Requested team: Full team
+
+Implement BookTranslator V2 MVP according to the "BookTranslator V2 — Implementation Plan" (Phases 0 through 4), transforming the application into a document-aware translation system with immutable source text, scoped entity/gender knowledge, paragraph-level contextual translation, and an integrated QA and repair loop.
+
+Working directory: d:\Перекладач
+Integrity mode: development
+
+## Verification Resources
+- Existing test suites: `pytest tests/unit tests/integration`
+- System test harness: `python tests/test_harness.py`
+- New regression corpus: `tests/regression/quality_cases.json` covering character names (`Cherry -> Черрі`), polysemy (`tart`), items (`potion`), gender agreement, and RPG class tags.
+
+## Requirements
+
+### R1. Pipeline Safety, Content Identity & Immutability (Phase 0 & 1)
+- Add the regression test suite `tests/regression/quality_cases.json` reproducing V1 quality failures.
+- Ensure `Sentence.original_text` is strictly immutable. Preprocessing and unit normalization must populate `normalized_source_text`, leaving `original_text` untouched for semantic QA and audit.
+- Base `Book.id` on SHA-256 of the input document content (`sha256(file_bytes)`). Generate deterministic `job_id` and fingerprint incorporating pipeline version, model config, prompt hash, and KB revision to prevent incompatible resumes.
+- Implement explicit segment status lifecycle: `PENDING` -> `DRAFT_COMPLETED` -> `EDITED` -> `VALIDATING` -> `ACCEPTED` / `REVIEW_REQUIRED` / `FAILED`.
+- Enforce visible failure on malformed Aya structured output: attempt retry and repair, but never silently fall back to an NLLB draft marked as successful.
+- Configure default Stage 2 generation to deterministic mode (`temperature=0.0`, `do_sample=False`, `top_p=1.0`, `repetition_penalty=1.02`).
+- Ensure document writers consume only `ACCEPTED` segments by default.
+
+### R2. Scoped Knowledge Base & Whole-Book Analysis (Phase 2)
+- Implement database migrations system (`src/knowledge_base/migrations/`) with `schema_version` support.
+- Implement scope hierarchy: `BOOK > SERIES > DOMAIN > GLOBAL` in `src/domain/models/knowledge.py` and `sqlite_repository.py`.
+- Model `EntityProfile` with `source_name`, `canonical_target`, `aliases`, `allowed_target_forms`, `grammatical_gender`, `translation_policy`, `confidence`, and `locked` status (`auto-lock at confidence >= 0.90`).
+- Create `src/analysis/book_analyzer.py` for pre-translation entity candidate extraction and classification.
+- Index entity mentions by segment (`EntityMention`) for precise, localized context retrieval without whole-glossary prompt bloat.
+
+### R3. Paragraph-Aware Contextual Translation (Phase 3)
+- Introduce `TranslationSegment` representing paragraph-level semantic units for Stage 2 while keeping NLLB as an auxiliary sentence-draft generator.
+- Implement `ContextBuilder` (`src/context/builder.py`) and tokenizer-aware `TokenBudget` to dynamically assemble: current source paragraph, fallible NLLB draft, previous 1–2 approved Ukrainian paragraphs, active locked entities/terms, and chapter/scene summary.
+- Deploy `data/prompts/editing_prompt_v2.md`: eliminate the 1:1 sentence constraint inside paragraphs while strictly preserving paragraph boundaries, emitting structured JSON keyed by segment IDs.
+
+### R4. Modular QA Architecture & Bounded Repair Pass (Phase 4)
+- Integrate `QualityPipeline` directly into the normal execution path of `TranslationRunner` before document reconciliation.
+- Refactor `src/quality/pipeline.py` into a modular validator architecture (`src/quality/validators/`): segment completeness, empty translation, entity consistency, glossary consistency, gender agreement, numbers/units, control tokens, and dialogue integrity.
+- Implement bounded repair loop (`src/quality/repair.py`): retry up to 2 times specifically prompting the LLM with the detected QA issues. If validation still fails, mark as `REVIEW_REQUIRED` without silent acceptance.
+- Persist auditable quality reports for every segment in SQLite.
+
+## Acceptance Criteria
+
+### Verification & Testing
+- [ ] `Sentence.original_text` remains untouched across all preprocessing and translation stages.
+- [ ] Book identity is content-hashed; resuming a translation with different settings or incompatible versions is safely caught.
+- [ ] Scoped knowledge base resolves entities with `BOOK > SERIES > DOMAIN > GLOBAL` precedence.
+- [ ] Character names with locked canonical translations (e.g. `Cherry -> Черрі`) strictly reject forbidden variants (`Вишня`, `Вішня`).
+- [ ] Stage 2 operates on paragraph `TranslationSegment`s; Ukrainian text may naturally combine/split sentences inside a paragraph without breaking segment alignment.
+- [ ] Malformed LLM output or parsing failure cannot become `ACCEPTED` without passing QA.
+- [ ] The repair engine automatically attempts to fix failed segments with QA diagnostics up to 2 times before setting `REVIEW_REQUIRED`.
+- [ ] Document writers write only `ACCEPTED` segments by default.
+- [ ] 100% of existing unit tests, integration tests, and new regression test cases pass without regressions.
+
+## 2026-09-04T09:07:26Z
+
+# Teamwork Project Prompt — Draft
+
+> Status: Launched
+> Goal: Craft prompt → get user approval → delegate to teamwork_preview
+> Requested team: Full team
+
+Continue the implementation of BookTranslator V2 MVP from where it paused (Phase 0 & 1 is already complete with 377 passing tests). Implement Phases 2, 3, and 4 according to the "BookTranslator V2 — Implementation Plan": Scoped Knowledge Base & Whole-Book Analysis, Paragraph-Aware Contextual Translation, and Modular QA with Bounded Repair Loop.
+
+Working directory: d:\Перекладач
+Integrity mode: development
+
+## Verification Resources
+- Existing passing tests: `d:\Перекладач\.venv\Scripts\python -m pytest tests/unit tests/regression` (377 tests currently passing)
+- Master test harness: `d:\Перекладач\.venv\Scripts\python tests/test_harness.py`
+- Regression corpus: `tests/regression/quality_cases.json`
+
+## Current Accomplished State (Phases 0 & 1 Complete)
+- `Sentence.original_text` is strictly immutable (normalization writes to `normalized_source_text`).
+- Content-based book hashing (`sha256(file_bytes)`) and job fingerprint verification with incompatible resume rejection are implemented.
+- `SegmentStatus` lifecycle exists (`PENDING`, `DRAFT_COMPLETED`, `EDITED`, `VALIDATING`, `ACCEPTED`, `REVIEW_REQUIRED`, `FAILED`).
+- Document writers consume only `ACCEPTED` segments by default.
+- Deterministic Stage 2 parameters calibrated in `settings.py`.
+
+## Requirements for Continuation
+
+### R1. Scoped Knowledge Base & Whole-Book Analysis (Phase 2)
+- Implement database migrations system (`src/knowledge_base/migrations/`) with `schema_version` support.
+- Implement scope hierarchy: `BOOK > SERIES > DOMAIN > GLOBAL` in `src/domain/models/knowledge.py` and `sqlite_repository.py`.
+- Model `EntityProfile` with `source_name`, `canonical_target`, `aliases`, `allowed_target_forms`, `grammatical_gender`, `translation_policy`, `confidence`, and `locked` status (`auto-lock at confidence >= 0.90`).
+- Create `src/analysis/book_analyzer.py` for pre-translation entity candidate extraction and classification.
+- Index entity mentions by segment (`EntityMention`) for precise, localized context retrieval without whole-glossary prompt bloat.
+
+### R2. Paragraph-Aware Contextual Translation (Phase 3)
+- Introduce `TranslationSegment` representing paragraph-level semantic units for Stage 2 while keeping NLLB as an auxiliary sentence-draft generator.
+- Implement `ContextBuilder` (`src/context/builder.py`) and tokenizer-aware `TokenBudget` to dynamically assemble: current source paragraph, fallible NLLB draft, previous 1–2 approved Ukrainian paragraphs, active locked entities/terms, and chapter/scene summary.
+- Deploy `data/prompts/editing_prompt_v2.md`: eliminate the 1:1 sentence constraint inside paragraphs while strictly preserving paragraph boundaries, emitting structured JSON keyed by segment IDs.
+
+### R3. Modular QA Architecture & Bounded Repair Pass (Phase 4)
+- Integrate `QualityPipeline` directly into the normal execution path of `TranslationRunner` before document reconciliation.
+- Refactor `src/quality/pipeline.py` into a modular validator architecture (`src/quality/validators/`): segment completeness, empty translation, entity consistency, glossary consistency, gender agreement, numbers/units, control tokens, and dialogue integrity.
+- Implement bounded repair loop (`src/quality/repair.py`): retry up to 2 times specifically prompting the LLM with the detected QA issues. If validation still fails, mark as `REVIEW_REQUIRED` without silent acceptance.
+- Persist auditable quality reports for every segment in SQLite.
+
+## Acceptance Criteria
+
+### Verification & Testing
+- [ ] Scoped knowledge base resolves entities with `BOOK > SERIES > DOMAIN > GLOBAL` precedence; schema migrations execute cleanly.
+- [ ] Character names with locked canonical translations (e.g. `Cherry -> Черрі`) strictly reject forbidden variants (`Вишня`, `Вішня`).
+- [ ] Stage 2 operates on paragraph `TranslationSegment`s; Ukrainian text may naturally combine/split sentences inside a paragraph without breaking segment alignment.
+- [ ] Context builder provides previous approved Ukrainian paragraphs and active scoped entities to Stage 2.
+- [ ] Quality gate runs automatically in `TranslationRunner`; only `ACCEPTED` segments reach the writer.
+- [ ] The repair engine automatically attempts to fix failed segments with QA diagnostics up to 2 times before setting `REVIEW_REQUIRED`.
+- [ ] 100% of all unit tests, integration tests, and regression tests pass without regressions (`.venv\Scripts\python -m pytest tests/unit tests/regression tests/integration`).
+
+
 

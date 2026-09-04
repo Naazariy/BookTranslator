@@ -195,7 +195,9 @@ class TestUnitConverter:
         # Test Sentence domain model
         s = Sentence(original_text="The cliff is 15 feet tall.")
         conv.convert_sentence(s)
-        assert s.original_text == "The cliff is 4.6 метра tall."
+        assert s.normalized_source_text == "The cliff is 4.6 метра tall."
+        assert s.original_text == "The cliff is 15 feet tall."
+
 
         # Test dual policy
         res_dual = UnitConverter.convert_text("80 feet", policy="dual")
@@ -294,8 +296,11 @@ class TestPreprocessingPipelineIntegration:
 
         pipe.process(book)
 
-        assert sent1.original_text == "The tower was 24 метри high."
-        assert sent2.original_text == "We walked 8 кілометрів today."
+        assert sent1.normalized_source_text == "The tower was 24 метри high."
+        assert sent1.original_text == "The tower was 80 feet high."
+        assert sent2.normalized_source_text == "We walked 8 кілометрів today."
+        assert sent2.original_text == "We walked 5 miles today."
+
 
     def test_preprocessing_skips_conversion_when_disabled(self):
         kb_mock = MagicMock()

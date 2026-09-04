@@ -11,7 +11,10 @@ from src.config.app_context import ApplicationContainer
 from src.knowledge_base.db_schema import init_db
 from src.domain.models.document import Book
 from src.domain.models.chunk import TranslationChunk, ChunkStatus
+from src.domain.models.segment import SegmentStatus
 from src.parsers.segmenter import RuleBasedSentenceSegmenter
+from src.launcher.translation_runner import compute_job_fingerprint, _verify_or_save_job_fingerprint
+
 
 
 def reconcile_document_dom(
@@ -50,6 +53,7 @@ def reconcile_document_dom(
             for s in target_sents:
                 if s.translated_text is not None:
                     sentence_map[s.id].translated_text = s.translated_text
+                    sentence_map[s.id].status = SegmentStatus.ACCEPTED
             continue
 
         raw_translation = chunk.final_translation or chunk.draft_translation or ""
@@ -62,20 +66,26 @@ def reconcile_document_dom(
         if len(translated_sents) == len(target_sents):
             for src_s, tr_text in zip(target_sents, translated_sents):
                 sentence_map[src_s.id].translated_text = tr_text.strip()
+                sentence_map[src_s.id].status = SegmentStatus.ACCEPTED
         elif len(target_sents) == 1:
             sentence_map[target_sents[0].id].translated_text = raw_translation.strip()
+            sentence_map[target_sents[0].id].status = SegmentStatus.ACCEPTED
         elif translated_sents:
             if len(translated_sents) < len(target_sents):
                 for idx in range(len(translated_sents)):
                     sentence_map[target_sents[idx].id].translated_text = translated_sents[idx].strip()
+                    sentence_map[target_sents[idx].id].status = SegmentStatus.ACCEPTED
                 for idx in range(len(translated_sents), len(target_sents)):
                     sentence_map[target_sents[idx].id].translated_text = ""
             else:
                 for idx in range(len(target_sents) - 1):
                     sentence_map[target_sents[idx].id].translated_text = translated_sents[idx].strip()
+                    sentence_map[target_sents[idx].id].status = SegmentStatus.ACCEPTED
                 sentence_map[target_sents[-1].id].translated_text = " ".join(translated_sents[len(target_sents) - 1:]).strip()
+                sentence_map[target_sents[-1].id].status = SegmentStatus.ACCEPTED
 
     return book
+
 
 
 def main():
@@ -125,20 +135,49 @@ def main():
     translator = container.translation_pipeline()
     kb_repo = container.kb_repository()
 
+    # Configure deterministic Stage 2 generation mode
+    if hasattr(translator, "aya_engine") and getattr(settings, "stage2_deterministic", True):
+        translator.aya_engine.temperature = getattr(settings, "temperature", 0.0)
+        translator.aya_engine.top_p = getattr(settings, "top_p", 1.0)
+        translator.aya_engine.repetition_penalty = getattr(settings, "repetition_penalty", 1.02)
+
+
     # 1. Parse Document
     logger.info(f"Parsing document: {input_path}")
     book = doc_manager.load_document(input_path)
 
-    file_hash = hashlib.md5(str(input_path.resolve()).encode('utf-8')).hexdigest()
-    book.id = UUID(hex=file_hash)
+    with open(input_path, "rb") as f:
+        file_bytes = f.read()
+    content_hash = hashlib.sha256(file_bytes).hexdigest()
+    book.id = UUID(hex=content_hash[:32])
 
     # Make all IDs deterministic so we can match them after re-parsing
     for c_idx, chapter in enumerate(book.chapters):
-        chapter.id = UUID(hex=hashlib.md5(f"{book.id}_c{c_idx}".encode('utf-8')).hexdigest())
+        chapter.id = UUID(hex=hashlib.sha256(f"{book.id}_c{c_idx}".encode('utf-8')).hexdigest()[:32])
         for p_idx, paragraph in enumerate(chapter.paragraphs):
-            paragraph.id = UUID(hex=hashlib.md5(f"{chapter.id}_p{p_idx}".encode('utf-8')).hexdigest())
+            paragraph.id = UUID(hex=hashlib.sha256(f"{chapter.id}_p{p_idx}".encode('utf-8')).hexdigest()[:32])
             for s_idx, sentence in enumerate(paragraph.sentences):
-                sentence.id = UUID(hex=hashlib.md5(f"{paragraph.id}_s{s_idx}".encode('utf-8')).hexdigest())
+                sentence.id = UUID(hex=hashlib.sha256(f"{paragraph.id}_s{s_idx}".encode('utf-8')).hexdigest()[:32])
+
+    # Compute deterministic job_id and config fingerprint
+    job_id, fingerprint, payload = compute_job_fingerprint(
+        file_bytes=file_bytes,
+        settings=settings,
+        kb_repo=kb_repo,
+    )
+    book.job_id = job_id
+    book.fingerprint = fingerprint
+
+    # Verify matching configuration or initialize job fingerprint
+    _verify_or_save_job_fingerprint(
+        db_path=settings.db_path,
+        book_id=book.id,
+        job_id=job_id,
+        fingerprint=fingerprint,
+        payload=payload,
+        clear_cache=False,
+    )
+
 
     # 2. Preprocess (NER, Glossary Setup)
     preprocessor.process(book)

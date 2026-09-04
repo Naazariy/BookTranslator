@@ -566,8 +566,9 @@ class UnitConverter:
                 sentence.translated_text, target_lang=target_lang, policy=active_policy
             )
         elif hasattr(sentence, "original_text") and sentence.original_text:
-            sentence.original_text = self.convert_text(
+            sentence.normalized_source_text = self.convert_text(
                 sentence.original_text, target_lang=target_lang, policy=active_policy
             )
+
 
         return sentence

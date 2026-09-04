@@ -7,6 +7,8 @@ from fpdf import FPDF
 
 from src.writers.base import BaseWriter
 from src.domain.models.document import Book
+from src.domain.models.segment import SegmentStatus
+
 
 logger = logging.getLogger(__name__)
 
@@ -53,10 +55,22 @@ class PdfWriter(BaseWriter):
 
         return "helvetica", None
 
-    def write(self, book: Book, output_path: Path, template_path: Optional[Path] = None) -> Path:
+    def __init__(self, allow_unreviewed: bool = False):
+        self.allow_unreviewed = allow_unreviewed
+
+    def write(
+        self,
+        book: Book,
+        output_path: Path,
+        template_path: Optional[Path] = None,
+        allow_unreviewed: Optional[bool] = None,
+    ) -> Path:
         """
         Renders the translated Book DOM into a PDF file at output_path.
         """
+        effective_allow_unreviewed = (
+            self.allow_unreviewed if allow_unreviewed is None else allow_unreviewed
+        )
         pdf = FPDF()
         pdf.add_page()
 
@@ -93,10 +107,21 @@ class PdfWriter(BaseWriter):
             pdf.set_font(font_name, size=11)
             for paragraph in chapter.paragraphs:
                 sorted_sentences = sorted(paragraph.sentences, key=lambda s: s.order_index)
-                translated_sentences = [
-                    s.translated_text.strip() if s.translated_text is not None else s.original_text
-                    for s in sorted_sentences
-                ]
+                translated_sentences = []
+                for s in sorted_sentences:
+                    status = getattr(s, "status", None)
+                    if status is not None and not effective_allow_unreviewed:
+                        status_str = getattr(status, "value", str(status)).upper()
+                        if status_str != SegmentStatus.ACCEPTED.value:
+                            continue
+
+                    txt = (
+                        s.translated_text.strip()
+                        if s.translated_text is not None
+                        else s.original_text
+                    )
+                    translated_sentences.append(txt)
+
                 # Filter out empty entries and join cleanly
                 para_sentences = [s.strip() for s in translated_sentences if s and s.strip()]
                 if para_sentences:
@@ -109,3 +134,4 @@ class PdfWriter(BaseWriter):
         output_path.parent.mkdir(parents=True, exist_ok=True)
         pdf.output(str(output_path))
         return output_path
+

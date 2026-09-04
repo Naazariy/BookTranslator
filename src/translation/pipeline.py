@@ -23,6 +23,7 @@ from src.domain.interfaces.translation import (
 )
 from src.domain.interfaces.knowledge_base import IKnowledgeBaseRepository
 from src.domain.models.chunk import TranslationChunk, ChunkStatus, ChunkContext
+from src.domain.models.segment import TranslationSegment, SegmentStatus
 from src.translation.batching import DynamicTokenBucketBatcher
 from src.chunking.manager import filter_glossary_for_chunk
 
@@ -99,6 +100,125 @@ class TwoStageTranslationPipeline(ITranslationPipeline):
         self.kb_repo = kb_repo
         self.max_batch_tokens = max_batch_tokens
 
+    def execute_segment_nllb_stage(
+        self,
+        book_id: UUID,
+        segments: Optional[List[TranslationSegment]] = None,
+        cancel_token: Optional[Any] = None,
+        cancel_event: Optional[Any] = None,
+        progress_cb: Optional[Callable[[ProgressEvent], None]] = None,
+        source_lang: str = "en",
+        target_lang: str = "uk"
+    ) -> List[TranslationSegment]:
+        """
+        Executes Stage 1: Machine Translation Pass across paragraph TranslationSegments.
+        Uses NLLB as an auxiliary draft generator to populate segment.draft_text.
+        """
+        token = cancel_token if cancel_token is not None else cancel_event
+        logger.info(f"Starting Stage 1 (NLLB MT Segment Pass) for book {book_id}")
+
+        if hasattr(self.nllb_engine, "load_model"):
+            self.nllb_engine.load_model()
+
+        try:
+            target_segments = segments
+            if target_segments is None:
+                if hasattr(self.kb_repo, "load_segments_by_status"):
+                    target_segments = list(self.kb_repo.load_segments_by_status(book_id, SegmentStatus.PENDING))
+                else:
+                    target_segments = []
+
+            total_segments = len(target_segments)
+            if total_segments == 0:
+                logger.info("No pending segments found for Stage 1.")
+                return target_segments
+
+            start_time = time.perf_counter()
+
+            from src.parsers.segmenter import RuleBasedSentenceSegmenter
+            segmenter = RuleBasedSentenceSegmenter()
+
+            seg_sents_map: Dict[Any, List[str]] = {}
+            indexed_items = []
+            for seg in target_segments:
+                seg_text = (seg.normalized_text or seg.source_text or "").strip()
+                if not seg_text:
+                    seg_sents_map[seg.id] = []
+                    continue
+                sents = segmenter.split_sentences(seg_text)
+                if not sents:
+                    sents = [seg_text]
+                seg_sents_map[seg.id] = sents
+                for idx, sent_text in enumerate(sents):
+                    indexed_items.append(((seg.id, idx), sent_text))
+
+            tokenizer = getattr(self.nllb_engine, "tokenizer", None)
+            batcher = DynamicTokenBucketBatcher(tokenizer=tokenizer, max_batch_tokens=self.max_batch_tokens)
+
+            def translation_wrapper(texts: List[str]) -> List[str]:
+                return self.nllb_engine.translate_batch(texts, source_lang=source_lang, target_lang=target_lang)
+
+            translated_map = batcher.batch_and_translate(
+                indexed_items=indexed_items,
+                translation_fn=translation_wrapper,
+                cancel_token=token,
+                progress_cb=None
+            )
+
+            for current_idx, seg in enumerate(target_segments, 1):
+                if _is_cancellation_requested(token):
+                    logger.info("Stage 1 segment execution cancelled by user.")
+                    break
+
+                sents = seg_sents_map.get(seg.id, [])
+                if sents:
+                    draft = " ".join(
+                        translated_map.get((seg.id, idx), "").strip()
+                        for idx in range(len(sents))
+                    ).strip()
+                else:
+                    draft = ""
+
+                seg.draft_translation = draft
+                seg.draft_text = draft
+                try:
+                    seg.transition_to(SegmentStatus.DRAFT_COMPLETED)
+                except Exception:
+                    seg.status = SegmentStatus.DRAFT_COMPLETED
+
+                if hasattr(self.kb_repo, "save_segment_state"):
+                    self.kb_repo.save_segment_state(seg)
+
+                elapsed = time.perf_counter() - start_time
+                avg_time = elapsed / current_idx
+                eta_seconds = avg_time * (total_segments - current_idx)
+
+                if progress_cb is not None:
+                    try:
+                        event = ProgressEvent(
+                            stage=1,
+                            current=current_idx,
+                            total=total_segments,
+                            eta_seconds=eta_seconds,
+                            status_message=f"Stage 1: {current_idx}/{total_segments} segments drafted"
+                        )
+                        progress_cb(event)
+                    except Exception as e:
+                        logger.warning(f"Error in progress callback: {e}")
+
+            if hasattr(self.kb_repo, "save_segments_batch"):
+                self.kb_repo.save_segments_batch(target_segments)
+
+            return target_segments
+
+        finally:
+            if hasattr(self.nllb_engine, "unload_model"):
+                self.nllb_engine.unload_model()
+            gc.collect()
+            if torch is not None and torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            logger.info("Stage 1 (NLLB MT Segment Pass) finished.")
+
     def execute_nllb_stage(
         self,
         book_id: UUID,
@@ -106,13 +226,26 @@ class TwoStageTranslationPipeline(ITranslationPipeline):
         cancel_event: Optional[Any] = None,
         progress_cb: Optional[Callable[[ProgressEvent], None]] = None,
         source_lang: str = "en",
-        target_lang: str = "uk"
+        target_lang: str = "uk",
+        segments: Optional[List[TranslationSegment]] = None
     ) -> None:
         """
-        Executes Stage 1: Machine Translation Pass across all pending chunks.
+        Executes Stage 1: Machine Translation Pass across all pending chunks or segments.
         Uses DynamicTokenBucketBatcher ($B_tokens=2048$) for maximum token throughput
         and persists results in 50-chunk WAL transactions.
         """
+        if segments is not None or (hasattr(self.kb_repo, "count_segments_by_status") and self.kb_repo.count_segments_by_status(book_id, SegmentStatus.PENDING) > 0):
+            self.execute_segment_nllb_stage(
+                book_id=book_id,
+                segments=segments,
+                cancel_token=cancel_token,
+                cancel_event=cancel_event,
+                progress_cb=progress_cb,
+                source_lang=source_lang,
+                target_lang=target_lang
+            )
+            return
+
         token = cancel_token if cancel_token is not None else cancel_event
         logger.info(f"Starting Stage 1 (NLLB MT Pass) for book {book_id}")
 
@@ -213,18 +346,125 @@ class TwoStageTranslationPipeline(ITranslationPipeline):
                 torch.cuda.empty_cache()
             logger.info("Stage 1 (NLLB MT Pass) finished.")
 
+    def execute_segment_aya_stage(
+        self,
+        book_id: UUID,
+        segments: Optional[List[TranslationSegment]] = None,
+        context_builder: Optional[Any] = None,
+        cancel_token: Optional[Any] = None,
+        cancel_event: Optional[Any] = None,
+        progress_cb: Optional[Callable[[ProgressEvent], None]] = None
+    ) -> List[TranslationSegment]:
+        """
+        Executes Stage 2: Paragraph-level Aya LLM Literary Refinement Pass.
+        Eliminates 1:1 sentence constraints, manages sliding window history of approved paragraphs,
+        and enforces visible failure diagnostics.
+        """
+        token = cancel_token if cancel_token is not None else cancel_event
+        logger.info(f"Starting Stage 2 (Aya Literary Segment Pass) for book {book_id}")
+
+        if hasattr(self.aya_engine, "load_model"):
+            self.aya_engine.load_model()
+
+        try:
+            target_segments = segments
+            if target_segments is None:
+                if hasattr(self.kb_repo, "load_segments_by_status"):
+                    target_segments = list(self.kb_repo.load_segments_by_status(book_id, SegmentStatus.DRAFT_COMPLETED))
+                else:
+                    target_segments = []
+
+            total_segments = len(target_segments)
+            if total_segments == 0:
+                logger.info("No draft segments found for Stage 2.")
+                return target_segments
+
+            if context_builder is None:
+                from src.context.builder import ContextBuilder
+                context_builder = ContextBuilder(kb_repo=self.kb_repo)
+
+            start_time = time.perf_counter()
+            approved_history: List[TranslationSegment] = []
+
+            for current_idx, seg in enumerate(target_segments, 1):
+                if _is_cancellation_requested(token):
+                    logger.info("Stage 2 segment execution cancelled by user.")
+                    break
+
+                # Refine single segment using ContextBuilder & prompt V2
+                ctx = context_builder.build_context(
+                    segment=seg,
+                    prev_segments=approved_history
+                )
+
+                res = self.aya_engine.refine_segments_structured(
+                    segments=[seg],
+                    prompt_context=ctx,
+                    cancel_token=token
+                )
+
+                if seg.refined_translation or seg.status == SegmentStatus.EDITED:
+                    approved_history.append(seg)
+                    if len(approved_history) > 4:
+                        approved_history.pop(0)
+
+                if hasattr(self.kb_repo, "save_segment_state"):
+                    self.kb_repo.save_segment_state(seg)
+
+                elapsed = time.perf_counter() - start_time
+                avg_time = elapsed / current_idx
+                eta_seconds = avg_time * (total_segments - current_idx)
+
+                logger.info(f"PROGRESS_UPDATE:STAGE_2:{current_idx}:{total_segments}:{eta_seconds:.1f}")
+
+                if progress_cb is not None:
+                    try:
+                        event = ProgressEvent(
+                            stage=2,
+                            current=current_idx,
+                            total=total_segments,
+                            eta_seconds=eta_seconds,
+                            status_message=f"Stage 2: {current_idx}/{total_segments} segments refined"
+                        )
+                        progress_cb(event)
+                    except Exception as e:
+                        logger.warning(f"Error in progress callback: {e}")
+
+            return target_segments
+
+        finally:
+            if hasattr(self.aya_engine, "unload_model"):
+                self.aya_engine.unload_model()
+            gc.collect()
+            if torch is not None and torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            logger.info("Stage 2 (Aya Literary Segment Pass) finished.")
+
     def execute_aya_stage(
         self,
         book_id: UUID,
         cancel_token: Optional[Any] = None,
         cancel_event: Optional[Any] = None,
-        progress_cb: Optional[Callable[[ProgressEvent], None]] = None
+        progress_cb: Optional[Callable[[ProgressEvent], None]] = None,
+        segments: Optional[List[TranslationSegment]] = None,
+        context_builder: Optional[Any] = None
     ) -> None:
         """
-        Executes Stage 2: Aya LLM Literary Refinement Pass across all draft chunks.
+        Executes Stage 2: Aya LLM Literary Refinement Pass across all draft chunks or segments.
         Features single-chunk immediate WAL persistence (0.2ms) to safeguard LLM compute.
         Writes translations per sentence_id and programmatically ignores IDs not in target_sentence_ids.
         """
+        if segments is not None or (hasattr(self.kb_repo, "count_segments_by_status") and self.kb_repo.count_segments_by_status(book_id, SegmentStatus.DRAFT_COMPLETED) > 0):
+            self.execute_segment_aya_stage(
+                book_id=book_id,
+                segments=segments,
+                context_builder=context_builder,
+                cancel_token=cancel_token,
+                cancel_event=cancel_event,
+                progress_cb=progress_cb
+            )
+            return
+
         token = cancel_token if cancel_token is not None else cancel_event
         logger.info(f"Starting Stage 2 (Aya Editing Pass) for book {book_id}")
 
@@ -323,6 +563,138 @@ class TwoStageTranslationPipeline(ITranslationPipeline):
             if torch is not None and torch.cuda.is_available():
                 torch.cuda.empty_cache()
             logger.info("Stage 2 (Aya Editing Pass) finished.")
+
+    def execute_qa_and_repair_stage(
+        self,
+        book_id: UUID,
+        cancel_token: Optional[Any] = None,
+        cancel_event: Optional[Any] = None,
+        progress_cb: Optional[Callable[[ProgressEvent], None]] = None,
+        progress_callback: Optional[Callable[[ProgressEvent], None]] = None,
+        segments: Optional[List[TranslationSegment]] = None,
+        quality_pipeline: Optional[Any] = None,
+        repair_engine: Optional[Any] = None,
+        context_builder: Optional[Any] = None,
+        max_repair_retries: int = 2,
+        **kwargs: Any,
+    ) -> List[TranslationSegment]:
+        """
+        Executes Stage 3: Modular QA Validation and Bounded Repair Pass.
+        Validates segments against modular rules, triggers targeted bounded repair (max 2 retries)
+        for failing segments, updates lifecycle status to ACCEPTED or REVIEW_REQUIRED,
+        and persists auditable reports into SQLite.
+        """
+        token = cancel_token if cancel_token is not None else cancel_event
+        cb = progress_cb or progress_callback
+        logger.info(f"Starting Stage 3 (QA & Bounded Repair Pass) for book {book_id}")
+
+        target_segments = segments
+        if target_segments is None:
+            if hasattr(self.kb_repo, "load_segments_by_status"):
+                target_segments = list(self.kb_repo.load_segments_by_status(book_id, SegmentStatus.EDITED))
+            else:
+                target_segments = []
+
+        total_segments = len(target_segments)
+        if total_segments == 0:
+            logger.info("No segments found for Stage 3 QA pass.")
+            return target_segments
+
+        # Lazy component resolution
+        qp = quality_pipeline or getattr(self, "quality_pipeline", None)
+        if qp is None:
+            from src.quality.pipeline import QualityPipeline
+            qp = QualityPipeline()
+
+        re = repair_engine or getattr(self, "repair_engine", None)
+        if re is None:
+            from src.quality.repair import BoundedRepairEngine
+            re = BoundedRepairEngine(
+                editing_engine=getattr(self, "aya_engine", None),
+                quality_pipeline=qp,
+                max_retries=max_repair_retries,
+            )
+
+        cb_builder = context_builder
+        if cb_builder is None:
+            from src.context.builder import ContextBuilder
+            cb_builder = ContextBuilder(kb_repo=self.kb_repo)
+
+        start_time = time.perf_counter()
+        reports_to_save: List[Any] = []
+
+        for current_idx, seg in enumerate(target_segments, 1):
+            if _is_cancellation_requested(token):
+                logger.info("Stage 3 QA execution cancelled by user.")
+                break
+
+            # Transition segment to VALIDATING state
+            if seg.status != SegmentStatus.VALIDATING:
+                try:
+                    seg.transition_to(SegmentStatus.VALIDATING)
+                except Exception:
+                    seg.status = SegmentStatus.VALIDATING
+
+            # Build localized context
+            ctx = cb_builder.build_context(segment=seg, prev_segments=[])
+
+            # Run QualityPipeline validation
+            report = qp.validate_segment(segment=seg, context=ctx)
+            report.book_id = book_id
+
+            if not report.is_valid:
+                logger.warning(
+                    f"Segment {seg.id} failed initial QA check with {len(report.violations)} violation(s). "
+                    f"Initiating Bounded Repair Pass."
+                )
+                seg, report = re.repair_segment(
+                    segment=seg,
+                    report=report,
+                    context=ctx,
+                    editing_engine=getattr(self, "aya_engine", None),
+                    quality_pipeline=qp,
+                    cancel_token=token,
+                )
+            else:
+                # Clean pass on initial check
+                seg.final_translation = seg.refined_translation or seg.draft_translation
+                seg.transition_to(SegmentStatus.ACCEPTED)
+                seg.error_message = None
+                report.status = SegmentStatus.ACCEPTED.value
+
+            reports_to_save.append(report)
+
+            # Persist immediate segment progress state
+            if hasattr(self.kb_repo, "save_segment_state"):
+                self.kb_repo.save_segment_state(seg)
+
+            elapsed = time.perf_counter() - start_time
+            avg_time = elapsed / current_idx
+            eta_seconds = avg_time * (total_segments - current_idx)
+
+            if cb is not None:
+                try:
+                    event = ProgressEvent(
+                        stage=3,
+                        stage_name="Етап 3: Контроль якості та виправлення (QA & Repair)",
+                        current=current_idx,
+                        total=total_segments,
+                        eta_seconds=eta_seconds,
+                        status_message=f"Stage 3: {current_idx}/{total_segments} segments validated"
+                    )
+                    cb(event)
+                except Exception as e:
+                    logger.warning(f"Error in progress callback: {e}")
+
+        # Batch save QA audit reports & final segments
+        if hasattr(self.kb_repo, "save_qa_reports_batch"):
+            self.kb_repo.save_qa_reports_batch(reports_to_save, book_id=book_id)
+
+        if hasattr(self.kb_repo, "save_segments_batch"):
+            self.kb_repo.save_segments_batch(target_segments)
+
+        logger.info(f"Stage 3 (QA & Bounded Repair Pass) finished for book {book_id}.")
+        return target_segments
 
     def execute_two_stage_translation(
         self,

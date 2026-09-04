@@ -1,0 +1,1031 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "version": "2.0.0",
+  "description": "BookTranslator V2 Quality Regression Corpus reproducing V1 defects across 5 core categories: character names, polysemy, items, gender agreement, and RPG class tags.",
+  "cases": [
+    {
+      "id": "REG-NAME-001",
+      "category": "character_names",
+      "description": "Preserve locked character name 'Cherry' as 'Черрі', strictly rejecting literal fruit translations and phonetic distortions.",
+      "source_text": "Cherry smiled warmly and picked up her wooden staff.",
+      "source_en": "Cherry smiled warmly and picked up her wooden staff.",
+      "expected_uk_canonical": "Черрі тепло усміхнулася і взяла свій дерев'яний посох.",
+      "forbidden_variants": [
+        "Вишня",
+        "Вішня",
+        "Черри",
+        "Черешня",
+        "Вишенька"
+      ],
+      "v1_failure_example": "Вишня тепло посміхнулася і підняла свій дерев'яний посох.",
+      "context": {
+        "active_entities": [
+          {
+            "source_name": "Cherry",
+            "canonical_target": "Черрі",
+            "grammatical_gender": "жіночий",
+            "locked": true,
+            "forbidden_variants": ["Вишня", "Вішня", "Черри", "Черешня"]
+          }
+        ],
+        "glossary": [
+          {"source": "wooden staff", "target": "дерев'яний посох", "reviewed": true}
+        ],
+        "domain": "fantasy"
+      },
+      "metadata": {
+        "tier": "tier1_feature",
+        "entity_type": "character",
+        "canonical_target": "Черрі",
+        "grammatical_gender": "жіночий"
+      },
+      "expected_constraints": {
+        "must_include": ["Черрі"],
+        "must_not_include": ["Вишня", "Вішня", "Черри", "Черешня", "Вишенька"],
+        "required_gender": "жіночий",
+        "expected_regex": "\\bЧеррі\\b"
+      }
+    },
+    {
+      "id": "REG-NAME-002",
+      "category": "character_names",
+      "description": "Preserve character name 'Cherry' in oblique prepositional context without fruit declension.",
+      "source_text": "The elder spoke with Cherry about the ancient prophecy.",
+      "source_en": "The elder spoke with Cherry about the ancient prophecy.",
+      "expected_uk_canonical": "Старійшина говорив із Черрі про давнє пророцтво.",
+      "forbidden_variants": [
+        "Вишнею",
+        "Вішнею",
+        "Черешнею",
+        "Вишенькою",
+        "Черри"
+      ],
+      "v1_failure_example": "Старійшина розмовляв з Вишнею про стародавнє пророцтво.",
+      "context": {
+        "active_entities": [
+          {
+            "source_name": "Cherry",
+            "canonical_target": "Черрі",
+            "grammatical_gender": "жіночий",
+            "locked": true
+          }
+        ],
+        "domain": "fantasy"
+      },
+      "metadata": {
+        "tier": "tier2_boundary",
+        "case_form": "instrumental",
+        "canonical_target": "Черрі"
+      },
+      "expected_constraints": {
+        "must_include": ["Черрі"],
+        "must_not_include": ["Вишнею", "Вішнею", "Черешнею", "Вишенькою", "Черри"],
+        "expected_regex": "\\b(?:із|з|зі)\\s+Черрі\\b"
+      }
+    },
+    {
+      "id": "REG-NAME-003",
+      "category": "character_names",
+      "description": "Preserve character name 'Hope' as transliterated proper name 'Гоуп', rejecting abstract noun 'Надія'.",
+      "source_text": "Hope drew her silver dagger and stepped into the shadow.",
+      "source_en": "Hope drew her silver dagger and stepped into the shadow.",
+      "expected_uk_canonical": "Гоуп оголила свій срібний кинджал і ступила в тінь.",
+      "forbidden_variants": [
+        "Надія",
+        "Надежда",
+        "Сподівання"
+      ],
+      "v1_failure_example": "Надія витягла свій срібний кинджал і зробила крок у тінь.",
+      "context": {
+        "active_entities": [
+          {
+            "source_name": "Hope",
+            "canonical_target": "Гоуп",
+            "grammatical_gender": "жіночий",
+            "locked": true
+          }
+        ],
+        "domain": "fantasy"
+      },
+      "metadata": {
+        "tier": "tier1_feature",
+        "canonical_target": "Гоуп",
+        "grammatical_gender": "жіночий"
+      },
+      "expected_constraints": {
+        "must_include": ["Гоуп"],
+        "must_not_include": ["Надія", "Надежда", "Сподівання"],
+        "required_gender": "жіночий",
+        "expected_regex": "\\bГоуп\\b"
+      }
+    },
+    {
+      "id": "REG-NAME-004",
+      "category": "character_names",
+      "description": "Preserve character name 'Faith' as 'Фейт', rejecting virtue noun 'Віра'.",
+      "source_text": "Faith turned around and looked at the horizon.",
+      "source_en": "Faith turned around and looked at the horizon.",
+      "expected_uk_canonical": "Фейт обернулася і поглянула на обрій.",
+      "forbidden_variants": [
+        "Віра",
+        "Вера",
+        "Довіра"
+      ],
+      "v1_failure_example": "Віра обернулася і подивилася на горизонт.",
+      "context": {
+        "active_entities": [
+          {
+            "source_name": "Faith",
+            "canonical_target": "Фейт",
+            "grammatical_gender": "жіночий",
+            "locked": true
+          }
+        ],
+        "domain": "literary"
+      },
+      "metadata": {
+        "tier": "tier1_feature",
+        "canonical_target": "Фейт",
+        "grammatical_gender": "жіночий"
+      },
+      "expected_constraints": {
+        "must_include": ["Фейт"],
+        "must_not_include": ["Віра", "Вера", "Довіра"],
+        "required_gender": "жіночий",
+        "expected_regex": "\\bФейт\\b"
+      }
+    },
+    {
+      "id": "REG-NAME-005",
+      "category": "character_names",
+      "description": "Preserve character name 'Robin' as 'Робін', rejecting bird noun 'Вільшанка' or 'Малинівка'.",
+      "source_text": "Robin knocked on the heavy wooden door three times.",
+      "source_en": "Robin knocked on the heavy wooden door three times.",
+      "expected_uk_canonical": "Робін постукав у важкі дерев'яні двері тричі.",
+      "forbidden_variants": [
+        "Вільшанка",
+        "Малинівка",
+        "Дрізд"
+      ],
+      "v1_failure_example": "Вільшанка постукала у важкі дерев'яні двері тричі.",
+      "context": {
+        "active_entities": [
+          {
+            "source_name": "Robin",
+            "canonical_target": "Робін",
+            "grammatical_gender": "чоловічий",
+            "locked": true
+          }
+        ],
+        "domain": "adventure"
+      },
+      "metadata": {
+        "tier": "tier1_feature",
+        "canonical_target": "Робін",
+        "grammatical_gender": "чоловічий"
+      },
+      "expected_constraints": {
+        "must_include": ["Робін"],
+        "must_not_include": ["Вільшанка", "Малинівка", "Дрізд"],
+        "required_gender": "чоловічий",
+        "expected_regex": "\\bРобін\\b"
+      }
+    },
+    {
+      "id": "REG-NAME-006",
+      "category": "character_names",
+      "description": "Preserve character name 'Rose' as 'Роуз', rejecting botanical noun 'Троянда' or Russian form 'Роза'.",
+      "source_text": "Rose adjusted her spectacles and read the inscription aloud.",
+      "source_en": "Rose adjusted her spectacles and read the inscription aloud.",
+      "expected_uk_canonical": "Роуз поправила свої окуляри й прочитала напис уголос.",
+      "forbidden_variants": [
+        "Троянда",
+        "Роза"
+      ],
+      "v1_failure_example": "Троянда поправила свої окуляри і прочитала напис уголос.",
+      "context": {
+        "active_entities": [
+          {
+            "source_name": "Rose",
+            "canonical_target": "Роуз",
+            "grammatical_gender": "жіночий",
+            "locked": true
+          }
+        ],
+        "domain": "mystery"
+      },
+      "metadata": {
+        "tier": "tier2_boundary",
+        "canonical_target": "Роуз",
+        "grammatical_gender": "жіночий"
+      },
+      "expected_constraints": {
+        "must_include": ["Роуз"],
+        "must_not_include": ["Троянда", "Роза"],
+        "required_gender": "жіночий",
+        "expected_regex": "\\bРоуз\\b"
+      }
+    },
+    {
+      "id": "REG-NAME-007",
+      "category": "character_names",
+      "description": "Preserve character name 'Flint' as 'Флінт', rejecting mineral noun 'Кремінь'.",
+      "source_text": "Flint reloaded his crossbow and peered through the mist.",
+      "source_en": "Flint reloaded his crossbow and peered through the mist.",
+      "expected_uk_canonical": "Флінт перезарядив свій арбалет і вдивився крізь туман.",
+      "forbidden_variants": [
+        "Кремінь",
+        "Кремень"
+      ],
+      "v1_failure_example": "Кремінь перезарядив свій арбалет і подивився крізь туман.",
+      "context": {
+        "active_entities": [
+          {
+            "source_name": "Flint",
+            "canonical_target": "Флінт",
+            "grammatical_gender": "чоловічий",
+            "locked": true
+          }
+        ],
+        "domain": "fantasy"
+      },
+      "metadata": {
+        "tier": "tier1_feature",
+        "canonical_target": "Флінт",
+        "grammatical_gender": "чоловічий"
+      },
+      "expected_constraints": {
+        "must_include": ["Флінт"],
+        "must_not_include": ["Кремінь", "Кремень"],
+        "required_gender": "чоловічий",
+        "expected_regex": "\\bФлінт\\b"
+      }
+    },
+    {
+      "id": "REG-POLY-001",
+      "category": "polysemy",
+      "description": "Translate 'tart reply' as sharp/biting reply, rejecting culinary pastry hallucinations ('пиріг', 'тарт').",
+      "source_text": "She gave him a tart reply when he questioned her decision.",
+      "source_en": "She gave him a tart reply when he questioned her decision.",
+      "expected_uk_canonical": "Вона дала йому різку відповідь, коли він поставив під сумнів її рішення.",
+      "forbidden_variants": [
+        "пиріг",
+        "тарт",
+        "пиріжок",
+        "випічку",
+        "солодку"
+      ],
+      "v1_failure_example": "Вона дала йому пиріг у відповідь, коли він засумнівався в її рішенні.",
+      "context": {
+        "domain": "literary_dialogue"
+      },
+      "metadata": {
+        "tier": "tier1_feature",
+        "polysemous_word": "tart",
+        "intended_sense": "sharp/cutting (tone of speech)"
+      },
+      "expected_constraints": {
+        "must_include": ["відповід"],
+        "must_not_include": ["пиріг", "тарт", "пиріжок", "випічк", "солодк"],
+        "expected_regex": "(?:різк|дошкульн|їдк|ущиплив|гостр)[а-яіїєґ]*\\s+відповід"
+      }
+    },
+    {
+      "id": "REG-POLY-002",
+      "category": "polysemy",
+      "description": "Translate culinary 'blackberry tart' as pastry/pie, rejecting speech/tone metaphors ('дошкульний', 'їдкий').",
+      "source_text": "The innkeeper served a warm blackberry tart dusted with sugar.",
+      "source_en": "The innkeeper served a warm blackberry tart dusted with sugar.",
+      "expected_uk_canonical": "Шинкар подав теплий ожиновий пиріг, присипаний цукром.",
+      "forbidden_variants": [
+        "дошкульний",
+        "їдкий",
+        "різкий",
+        "ущипливий"
+      ],
+      "v1_failure_example": "Шинкар подав теплу їдку ожину, присипану цукром.",
+      "context": {
+        "domain": "literary_food"
+      },
+      "metadata": {
+        "tier": "tier1_feature",
+        "polysemous_word": "tart",
+        "intended_sense": "baked pastry dish"
+      },
+      "expected_constraints": {
+        "must_include": ["ожинов"],
+        "must_include_any": ["пиріг", "тарт"],
+        "must_not_include": ["дошкульний", "їдкий", "різкий", "ущипливий"],
+        "expected_regex": "(?:пиріг|тарт)"
+      }
+    },
+    {
+      "id": "REG-POLY-003",
+      "category": "polysemy",
+      "description": "Translate 'river bank' as 'берег річки', strictly rejecting financial institution 'банк'.",
+      "source_text": "The travelers rested on the steep grassy bank of the rushing river.",
+      "source_en": "The travelers rested on the steep grassy bank of the rushing river.",
+      "expected_uk_canonical": "Мандрівники відпочивали на крутому трав'янистому березі бурхливої річки.",
+      "forbidden_variants": [
+        "банк",
+        "банкомат",
+        "банкір",
+        "фінансовий"
+      ],
+      "v1_failure_example": "Мандрівники відпочивали у крутому трав'янистому банку бурхливої річки.",
+      "context": {
+        "domain": "nature_travel"
+      },
+      "metadata": {
+        "tier": "tier1_feature",
+        "polysemous_word": "bank",
+        "intended_sense": "riverside embankment"
+      },
+      "expected_constraints": {
+        "must_include": ["річк"],
+        "must_include_any": ["берез", "берег"],
+        "must_not_include": ["банк", "банкомат", "банкір", "фінансов"],
+        "expected_regex": "берез[іі]\\s+бурхливої\\s+річки|берег[уа]\\s+річки"
+      }
+    },
+    {
+      "id": "REG-POLY-004",
+      "category": "polysemy",
+      "description": "Translate 'cast a spell' as 'наклав/промовив заклинання', rejecting medical plaster or theatrical cast.",
+      "source_text": "The sorcerer quickly cast a protective barrier spell around his allies.",
+      "source_en": "The sorcerer quickly cast a protective barrier spell around his allies.",
+      "expected_uk_canonical": "Чаклун швидко наклав захисне заклинання бар'єра навколо своїх союзників.",
+      "forbidden_variants": [
+        "гіпс",
+        "акторський склад",
+        "зліпок",
+        "відлив",
+        "кастинг"
+      ],
+      "v1_failure_example": "Чаклун швидко відлив у гіпс захисний бар'єр навколо своїх союзників.",
+      "context": {
+        "domain": "magic_fantasy"
+      },
+      "metadata": {
+        "tier": "tier1_feature",
+        "polysemous_word": "cast",
+        "intended_sense": "cast magic spell"
+      },
+      "expected_constraints": {
+        "must_include": ["бар'єр"],
+        "must_include_any": ["заклинання", "закляття", "чари"],
+        "must_not_include": ["гіпс", "акторський склад", "зліпок", "відлив", "кастинг"],
+        "expected_regex": "(?:наклав|застосував|створив|промовив)[^.]*?(?:заклинання|закляття|бар'єр)"
+      }
+    },
+    {
+      "id": "REG-POLY-005",
+      "category": "polysemy",
+      "description": "Translate 'gold mine' as mineral excavation 'золота копальня/шахта', rejecting explosive landmine 'міна'.",
+      "source_text": "The kingdom prospered after discovering a rich gold mine in the northern hills.",
+      "source_en": "The kingdom prospered after discovering a rich gold mine in the northern hills.",
+      "expected_uk_canonical": "Королівство процвітало після відкриття багатої золотої копальні в північних пагорбах.",
+      "forbidden_variants": [
+        "золоту міну",
+        "золота міна",
+        "вибухівка",
+        "підрив"
+      ],
+      "v1_failure_example": "Королівство процвітало після відкриття багатої золотої міни в північних пагорбах.",
+      "context": {
+        "domain": "history_geography"
+      },
+      "metadata": {
+        "tier": "tier1_feature",
+        "polysemous_word": "mine",
+        "intended_sense": "subterranean mineral mine"
+      },
+      "expected_constraints": {
+        "must_include": ["золот"],
+        "must_include_any": ["копальн", "шахт", "рудник"],
+        "must_not_include": ["міну", "міна", "вибухівк"],
+        "expected_regex": "золот(?:ої|у)\\s+(?:копальн|шахт|рудник)"
+      }
+    },
+    {
+      "id": "REG-POLY-006",
+      "category": "polysemy",
+      "description": "Translate 'tree trunk' as tree stem 'стовбур', rejecting elephant trunk ('хобот') and luggage chest ('скриня').",
+      "source_text": "An owl perched quietly inside the hollow trunk of the ancient oak.",
+      "source_en": "An owl perched quietly inside the hollow trunk of the ancient oak.",
+      "expected_uk_canonical": "Сова тихо сиділа всередині дупла в стовбурі старезного дуба.",
+      "forbidden_variants": [
+        "хобот",
+        "хоботі",
+        "скриня",
+        "скрині",
+        "багажник",
+        "валізі"
+      ],
+      "v1_failure_example": "Сова тихо сиділа всередині порожнього хобота стародавнього дуба.",
+      "context": {
+        "domain": "nature"
+      },
+      "metadata": {
+        "tier": "tier2_boundary",
+        "polysemous_word": "trunk",
+        "intended_sense": "woody stem of a tree"
+      },
+      "expected_constraints": {
+        "must_include": ["стовбур"],
+        "must_not_include": ["хобот", "скриня", "скрині", "багажник", "валіз"],
+        "expected_regex": "стовбур[іа]"
+      }
+    },
+    {
+      "id": "REG-ITEM-001",
+      "category": "items",
+      "description": "Translate 'healing potion' as fantasy elixir 'зілля зцілення', strictly rejecting generic beverage 'напій' or 'чай'.",
+      "source_text": "The wounded knight uncorked the glass vial and drank the healing potion.",
+      "source_en": "The wounded knight uncorked the glass vial and drank the healing potion.",
+      "expected_uk_canonical": "Поранений лицар відкоркував скляний флакон і випив зілля зцілення.",
+      "forbidden_variants": [
+        "напій",
+        "лікувальний напій",
+        "чай",
+        "суп",
+        "компот",
+        "відвар"
+      ],
+      "v1_failure_example": "Поранений лицар відкоркував скляний флакон і випив лікувальний напій.",
+      "context": {
+        "active_entities": [],
+        "glossary": [
+          {"source": "healing potion", "target": "зілля зцілення", "reviewed": true}
+        ],
+        "domain": "rpg_fantasy"
+      },
+      "metadata": {
+        "tier": "tier1_feature",
+        "item_type": "consumable",
+        "canonical_target": "зілля зцілення"
+      },
+      "expected_constraints": {
+        "must_include": ["зілля"],
+        "must_not_include": ["напій", "лікувальний напій", "чай", "суп", "компот"],
+        "expected_regex": "зілля\\s+(?:зцілення|лікування)"
+      }
+    },
+    {
+      "id": "REG-ITEM-002",
+      "category": "items",
+      "description": "Translate 'mana potion' as 'зілля мани', strictly rejecting 'напій мани' or 'енергетик'.",
+      "source_text": "After casting the firestorm, the wizard replenished his magical energy with a mana potion.",
+      "source_en": "After casting the firestorm, the wizard replenished his magical energy with a mana potion.",
+      "expected_uk_canonical": "Після застосування вогняної бурі маг відновив свою магічну енергію зіллям мани.",
+      "forbidden_variants": [
+        "напій мани",
+        "напоєм мани",
+        "енергетик",
+        "содова"
+      ],
+      "v1_failure_example": "Після чаклування вогняної бурі маг поповнив магічну енергію напоєм мани.",
+      "context": {
+        "glossary": [
+          {"source": "mana potion", "target": "зілля мани", "reviewed": true}
+        ],
+        "domain": "rpg_fantasy"
+      },
+      "metadata": {
+        "tier": "tier1_feature",
+        "canonical_target": "зілля мани"
+      },
+      "expected_constraints": {
+        "must_include": ["мани"],
+        "must_include_any": ["зілл"],
+        "must_not_include": ["напій мани", "напоєм мани", "енергетик", "содова"],
+        "expected_regex": "зілл\\w*\\s+мани"
+      }
+    },
+    {
+      "id": "REG-ITEM-003",
+      "category": "items",
+      "description": "Translate 'broadsword' as historical weapon 'палаш' or 'широкий меч', rejecting modern broad knife or saber.",
+      "source_text": "The warrior drew his two-handed broadsword from its scabbard.",
+      "source_en": "The warrior drew his two-handed broadsword from its scabbard.",
+      "expected_uk_canonical": "Воїн витяг свій дворучний палаш із піхов.",
+      "forbidden_variants": [
+        "широкий ніж",
+        "шабля",
+        "лопатка",
+        "широка шабля"
+      ],
+      "v1_failure_example": "Воїн дістав свій дворучний широкий ніж з піхов.",
+      "context": {
+        "glossary": [
+          {"source": "broadsword", "target": "палаш", "reviewed": true}
+        ],
+        "domain": "medieval_combat"
+      },
+      "metadata": {
+        "tier": "tier1_feature",
+        "item_type": "weapon",
+        "canonical_target": "палаш"
+      },
+      "expected_constraints": {
+        "must_include": ["дворучн"],
+        "must_include_any": ["палаш", "меч"],
+        "must_not_include": ["широкий ніж", "шабля", "лопатка"],
+        "expected_regex": "(?:палаш|широкий меч)"
+      }
+    },
+    {
+      "id": "REG-ITEM-004",
+      "category": "items",
+      "description": "Translate magic 'scroll of town portal' as 'сувій міського порталу', rejecting paper roll or UI scrolling.",
+      "source_text": "In a panic, the rogue unrolled a scroll of town portal.",
+      "source_en": "In a panic, the rogue unrolled a scroll of town portal.",
+      "expected_uk_canonical": "У паніці розбійник розгорнув сувій міського порталу.",
+      "forbidden_variants": [
+        "рулон",
+        "прокрутка",
+        "список",
+        "скрол"
+      ],
+      "v1_failure_example": "У паніці розбійник розгорнув рулон міського порталу.",
+      "context": {
+        "glossary": [
+          {"source": "scroll of town portal", "target": "сувій міського порталу", "reviewed": true}
+        ],
+        "domain": "rpg_fantasy"
+      },
+      "metadata": {
+        "tier": "tier1_feature",
+        "canonical_target": "сувій міського порталу"
+      },
+      "expected_constraints": {
+        "must_include": ["сувій"],
+        "must_not_include": ["рулон", "прокрутка", "скрол"],
+        "expected_regex": "сувій\\s+міського\\s+порталу"
+      }
+    },
+    {
+      "id": "REG-ITEM-005",
+      "category": "items",
+      "description": "Translate 'stamina elixir' as 'еліксир витривалості', rejecting generic beverage or medical syrup.",
+      "source_text": "Before the sprint, the gladiator gulped down a stamina elixir.",
+      "source_en": "Before the sprint, the gladiator gulped down a stamina elixir.",
+      "expected_uk_canonical": "Перед забігом гладіатор залпом випив еліксир витривалості.",
+      "forbidden_variants": [
+        "напій витривалості",
+        "сироп",
+        "мікстура",
+        "компот"
+      ],
+      "v1_failure_example": "Перед забігом гладіатор випив напій витривалості.",
+      "context": {
+        "glossary": [
+          {"source": "stamina elixir", "target": "еліксир витривалості", "reviewed": true}
+        ],
+        "domain": "rpg_fantasy"
+      },
+      "metadata": {
+        "tier": "tier2_boundary",
+        "canonical_target": "еліксир витривалості"
+      },
+      "expected_constraints": {
+        "must_include": ["еліксир"],
+        "must_not_include": ["напій витривалості", "сироп", "мікстура", "компот"],
+        "expected_regex": "еліксир\\s+витривалості"
+      }
+    },
+    {
+      "id": "REG-ITEM-006",
+      "category": "items",
+      "description": "Translate 'chainmail armor' as 'кольчуга' or 'кольчужний обладунок', rejecting postal chain or chained armor.",
+      "source_text": "The goblin blade glanced harmlessly off his reinforced chainmail armor.",
+      "source_en": "The goblin blade glanced harmlessly off his reinforced chainmail armor.",
+      "expected_uk_canonical": "Лезо гобліна без шкоди зісковзнуло з його посиленої кольчуги.",
+      "forbidden_variants": [
+        "поштової броні",
+        "ланцюгової пошти",
+        "ланцюгової броні",
+        "панцира з ланцюгів"
+      ],
+      "v1_failure_example": "Лезо гобліна відскочило від його посиленої ланцюгової поштової броні.",
+      "context": {
+        "glossary": [
+          {"source": "chainmail armor", "target": "кольчужний обладунок", "reviewed": true}
+        ],
+        "domain": "medieval_combat"
+      },
+      "metadata": {
+        "tier": "tier1_feature",
+        "canonical_target": "кольчуга"
+      },
+      "expected_constraints": {
+        "must_include": ["кольчуг"],
+        "must_not_include": ["ланцюгов", "поштов", "ланцюгів"],
+        "expected_regex": "кольчуг[иауеі]"
+      }
+    },
+    {
+      "id": "REG-GEND-001",
+      "category": "gender_agreement",
+      "description": "Enforce feminine past-tense verb concordance for female protagonist 'Mary'.",
+      "source_text": "Mary entered the quiet chamber, noticed the shattered crystal, and sighed deeply.",
+      "source_en": "Mary entered the quiet chamber, noticed the shattered crystal, and sighed deeply.",
+      "expected_uk_canonical": "Марія увійшла в тиху кімнату, помітила розбитий кристал і глибоко зітхнула.",
+      "forbidden_variants": [
+        "Марія увійшов",
+        "Марія зайшов",
+        "помітив",
+        "зітхнув",
+        "він"
+      ],
+      "v1_failure_example": "Марія зайшов у тиху кімнату, помітив розбитий кристал і глибоко зітхнув.",
+      "context": {
+        "active_entities": [
+          {
+            "source_name": "Mary",
+            "canonical_target": "Марія",
+            "grammatical_gender": "жіночий",
+            "locked": true
+          }
+        ],
+        "domain": "literary"
+      },
+      "metadata": {
+        "tier": "tier1_feature",
+        "grammatical_gender": "жіночий",
+        "subject": "Марія"
+      },
+      "expected_constraints": {
+        "must_include": ["Марія", "увійшла", "зітхнула"],
+        "must_not_include": ["увійшов", "зайшов", "помітив", "зітхнув"],
+        "required_gender": "жіночий",
+        "expected_regex": "Марія[^.]*?(?:увійшла|зайшла)[^.]*?(?:помітила)[^.]*?(?:зітхнула)"
+      }
+    },
+    {
+      "id": "REG-GEND-002",
+      "category": "gender_agreement",
+      "description": "Enforce feminine past-tense verb agreement for character 'Cherry' ('Черрі').",
+      "source_text": "Cherry smiled gently, picked up her bag, and walked toward the gate.",
+      "source_en": "Cherry smiled gently, picked up her bag, and walked toward the gate.",
+      "expected_uk_canonical": "Черрі лагідно усміхнулася, підхопила свою сумку й попрямувала до воріт.",
+      "forbidden_variants": [
+        "Черрі усміхнувся",
+        "Черрі посміхнувся",
+        "підхопив",
+        "попрямував",
+        "пішов"
+      ],
+      "v1_failure_example": "Черрі ніжно посміхнувся, підняв свою сумку і пішов до воріт.",
+      "context": {
+        "active_entities": [
+          {
+            "source_name": "Cherry",
+            "canonical_target": "Черрі",
+            "grammatical_gender": "жіночий",
+            "locked": true
+          }
+        ],
+        "domain": "fantasy"
+      },
+      "metadata": {
+        "tier": "tier3_pairwise",
+        "cross_features": ["character_names", "gender_agreement"],
+        "grammatical_gender": "жіночий",
+        "subject": "Черрі"
+      },
+      "expected_constraints": {
+        "must_include": ["Черрі"],
+        "must_not_include": ["посміхнувся", "усміхнувся", "підхопив", "попрямував", "пішов"],
+        "required_gender": "жіночий",
+        "expected_regex": "Черрі[^.]*?(?:усміхнулася|посміхнулася)"
+      }
+    },
+    {
+      "id": "REG-GEND-003",
+      "category": "gender_agreement",
+      "description": "Enforce masculine past-tense verb concordance for male character 'Lord Bryan'.",
+      "source_text": "Lord Bryan stood up, looked sternly at the council, and ordered silence.",
+      "source_en": "Lord Bryan stood up, looked sternly at the council, and ordered silence.",
+      "expected_uk_canonical": "Лорд Браян підвівся, суворо поглянув на раду і наказав мовчати.",
+      "forbidden_variants": [
+        "підвелася",
+        "поглянула",
+        "наказала",
+        "вона"
+      ],
+      "v1_failure_example": "Лорд Браян підвелася, суворо подивилася на раду і наказала мовчати.",
+      "context": {
+        "active_entities": [
+          {
+            "source_name": "Lord Bryan",
+            "canonical_target": "Лорд Браян",
+            "grammatical_gender": "чоловічий",
+            "locked": true
+          }
+        ],
+        "domain": "historical_fantasy"
+      },
+      "metadata": {
+        "tier": "tier1_feature",
+        "grammatical_gender": "чоловічий",
+        "subject": "Лорд Браян"
+      },
+      "expected_constraints": {
+        "must_include": ["Лорд Браян", "підвівся", "наказав"],
+        "must_not_include": ["підвелася", "поглянула", "наказала", "вона"],
+        "required_gender": "чоловічий",
+        "expected_regex": "Лорд Браян[^.]*?(?:підвівся|встав)[^.]*?(?:наказав)"
+      }
+    },
+    {
+      "id": "REG-GEND-004",
+      "category": "gender_agreement",
+      "description": "Enforce feminine adjective and verb agreement with female noble title 'Princess Elena'.",
+      "source_text": "Princess Elena was determined to protect the realm and set out alone.",
+      "source_en": "Princess Elena was determined to protect the realm and set out alone.",
+      "expected_uk_canonical": "Принцеса Олена була сповнена рішучості захистити королівство й вирушила сама.",
+      "forbidden_variants": [
+        "був сповнений",
+        "вирушив",
+        "сам",
+        "він"
+      ],
+      "v1_failure_example": "Принцеса Олена був сповнений рішучості захистити королівство і вирушив сам.",
+      "context": {
+        "active_entities": [
+          {
+            "source_name": "Princess Elena",
+            "canonical_target": "Принцеса Олена",
+            "grammatical_gender": "жіночий",
+            "locked": true
+          }
+        ],
+        "domain": "fantasy"
+      },
+      "metadata": {
+        "tier": "tier2_boundary",
+        "grammatical_gender": "жіночий",
+        "subject": "Принцеса Олена"
+      },
+      "expected_constraints": {
+        "must_include": ["Принцеса Олена", "була", "вирушила"],
+        "must_not_include": ["був сповнений", "вирушив", "сам ", "він "],
+        "required_gender": "жіночий",
+        "expected_regex": "Принцеса Олена[^.]*?(?:була|вирушила)"
+      }
+    },
+    {
+      "id": "REG-GEND-005",
+      "category": "gender_agreement",
+      "description": "Enforce masculine verb agreement for male title and character 'Grandmaster Thorne'.",
+      "source_text": "Grandmaster Thorne paused at the threshold, turned around, and spoke quietly.",
+      "source_en": "Grandmaster Thorne paused at the threshold, turned around, and spoke quietly.",
+      "expected_uk_canonical": "Гросмейстер Торн зупинився біля порога, обернувся і тихо заговорив.",
+      "forbidden_variants": [
+        "зупинилася",
+        "обернулася",
+        "заговорила",
+        "вона"
+      ],
+      "v1_failure_example": "Гросмейстер Торн зупинилася біля порога, обернулася і тихо заговорила.",
+      "context": {
+        "active_entities": [
+          {
+            "source_name": "Grandmaster Thorne",
+            "canonical_target": "Гросмейстер Торн",
+            "grammatical_gender": "чоловічий",
+            "locked": true
+          }
+        ],
+        "domain": "martial_arts_fantasy"
+      },
+      "metadata": {
+        "tier": "tier1_feature",
+        "grammatical_gender": "чоловічий",
+        "subject": "Гросмейстер Торн"
+      },
+      "expected_constraints": {
+        "must_include": ["Гросмейстер Торн", "зупинився", "обернувся"],
+        "must_not_include": ["зупинилася", "обернулася", "заговорила", "вона "],
+        "required_gender": "чоловічий",
+        "expected_regex": "Гросмейстер Торн[^.]*?(?:зупинився|обернувся)"
+      }
+    },
+    {
+      "id": "REG-GEND-006",
+      "category": "gender_agreement",
+      "description": "Enforce feminine agreement in inverted reporting dialogue clause: '... whispered Mary.'",
+      "source_text": "\"I cannot accept this offer,\" whispered Mary softly.",
+      "source_en": "\"I cannot accept this offer,\" whispered Mary softly.",
+      "expected_uk_canonical": "«Я не можу прийняти цю пропозицію», — тихо прошепотіла Марія.",
+      "forbidden_variants": [
+        "прошепотів Марія",
+        "шепотів Марія",
+        "сказав Марія",
+        "відповів Марія"
+      ],
+      "v1_failure_example": "«Я не можу прийняти цю пропозицію», — тихо прошепотів Марія.",
+      "context": {
+        "active_entities": [
+          {
+            "source_name": "Mary",
+            "canonical_target": "Марія",
+            "grammatical_gender": "жіночий",
+            "locked": true
+          }
+        ],
+        "domain": "literary_dialogue"
+      },
+      "metadata": {
+        "tier": "tier2_boundary",
+        "syntax_pattern": "inverted_reporting_clause",
+        "grammatical_gender": "жіночий"
+      },
+      "expected_constraints": {
+        "must_include": ["Марія"],
+        "must_not_include": ["прошепотів Марія", "шепотів Марія", "сказав Марія", "відповів Марія"],
+        "required_gender": "жіночий",
+        "expected_regex": "(?:прошепотіла|шепотіла|мовила|промовила)[^.]*?Марія"
+      }
+    },
+    {
+      "id": "REG-RPG-001",
+      "category": "rpg_class_tags",
+      "description": "Preserve triple bracketed RPG status UI block '[Status: ...] [Class: ...] [Level: ...]'.",
+      "source_text": "[Status: Active] [Class: Shadowblade] [Level: 45] approached the dungeon gate.",
+      "source_en": "[Status: Active] [Class: Shadowblade] [Level: 45] approached the dungeon gate.",
+      "expected_uk_canonical": "[Статус: Активний] [Клас: Тіньовий клинок] [Рівень: 45] наблизився до воріт підземелля.",
+      "forbidden_variants": [
+        "<tag_",
+        "Shadowblade",
+        "Статус: Активний Клас:",
+        "Active] Class:"
+      ],
+      "v1_failure_example": "Статус: Активний Клас: Тіньовий клинок Рівень: 45 підійшов до воріт підземелля.",
+      "context": {
+        "glossary": [
+          {"source": "Shadowblade", "target": "Тіньовий клинок", "reviewed": true}
+        ],
+        "domain": "litrpg"
+      },
+      "metadata": {
+        "tier": "tier1_feature",
+        "formatting_pattern": "bracketed_tags",
+        "domain": "litrpg"
+      },
+      "expected_constraints": {
+        "must_include": ["[", "]", "Клас:", "Рівень:"],
+        "must_not_include": ["<tag_", "Shadowblade"],
+        "expected_regex": "\\[Статус:[^\\]]+\\]\\s*\\[Клас:[^\\]]+\\]\\s*\\[Рівень:[^\\]]+\\]"
+      }
+    },
+    {
+      "id": "REG-RPG-002",
+      "category": "rpg_class_tags",
+      "description": "Preserve LitRPG system alert header '[System Alert: ...]' with quotes and colons.",
+      "source_text": "[System Alert: Quest Completed: 'Trial of Fire'. Reward: 5,000 EXP]",
+      "source_en": "[System Alert: Quest Completed: 'Trial of Fire'. Reward: 5,000 EXP]",
+      "expected_uk_canonical": "[Системне сповіщення: Завдання виконано: «Випробування вогнем». Нагорода: 5 000 досвіду]",
+      "forbidden_variants": [
+        "<tag_",
+        "Системне сповіщення Завдання",
+        "```json",
+        "Quest Completed:"
+      ],
+      "v1_failure_example": "Системне сповіщення: Завдання виконано 'Trial of Fire'. Нагорода: 5000 EXP",
+      "context": {
+        "domain": "litrpg_system_message"
+      },
+      "metadata": {
+        "tier": "tier1_feature",
+        "formatting_pattern": "system_prompt_banner"
+      },
+      "expected_constraints": {
+        "must_include": ["[", "]", "Системне сповіщення:"],
+        "must_not_include": ["<tag_", "Quest Completed:", "```"],
+        "expected_regex": "^\\[Системне сповіщення:[^\\]]+\\]$"
+      }
+    },
+    {
+      "id": "REG-RPG-003",
+      "category": "rpg_class_tags",
+      "description": "Preserve paired RPG combat vitals tags '[HP: ...] [MP: ...]'.",
+      "source_text": "The warrior checked his vital stats: [HP: 250/250] [MP: 120/120].",
+      "source_en": "The warrior checked his vital stats: [HP: 250/250] [MP: 120/120].",
+      "expected_uk_canonical": "Воїн перевірив свої життєві показники: [ОЗ: 250/250] [ОМ: 120/120].",
+      "forbidden_variants": [
+        "<tag_",
+        "(HP: 250/250)",
+        "250/250 120/120"
+      ],
+      "v1_failure_example": "Воїн перевірив життєві показники: ОЗ: 250/250, ОМ: 120/120 без дужок.",
+      "context": {
+        "glossary": [
+          {"source": "HP", "target": "ОЗ", "reviewed": true},
+          {"source": "MP", "target": "ОМ", "reviewed": true}
+        ],
+        "domain": "litrpg"
+      },
+      "metadata": {
+        "tier": "tier1_feature",
+        "formatting_pattern": "numeric_stat_brackets"
+      },
+      "expected_constraints": {
+        "must_include": ["[", "]", "250/250", "120/120"],
+        "must_not_include": ["<tag_", "(HP:"],
+        "expected_regex": "\\[(?:ОЗ|HP):\\s*250/250\\]\\s*\\[(?:ОМ|MP):\\s*120/120\\]"
+      }
+    },
+    {
+      "id": "REG-RPG-004",
+      "category": "rpg_class_tags",
+      "description": "Preserve skill notification tag with nested parentheses '[Skill Acquired: ... (Rank: ...)]'.",
+      "source_text": "[Skill Acquired: 'Shadow Step' (Rank: Apprentice)]",
+      "source_en": "[Skill Acquired: 'Shadow Step' (Rank: Apprentice)]",
+      "expected_uk_canonical": "[Отримано навичку: «Крок тіні» (Ранг: Учень)]",
+      "forbidden_variants": [
+        "<tag_",
+        "Отримано навичку Крок тіні",
+        "Shadow Step"
+      ],
+      "v1_failure_example": "Отримано навичку: Тіньовий крок Ранг: Учень",
+      "context": {
+        "glossary": [
+          {"source": "Shadow Step", "target": "Крок тіні", "reviewed": true},
+          {"source": "Apprentice", "target": "Учень", "reviewed": true}
+        ],
+        "domain": "litrpg"
+      },
+      "metadata": {
+        "tier": "tier2_boundary",
+        "formatting_pattern": "nested_parentheses_brackets"
+      },
+      "expected_constraints": {
+        "must_include": ["[", "]", "(", ")", "Ранг:"],
+        "must_not_include": ["<tag_", "Shadow Step"],
+        "expected_regex": "^\\[Отримано навичку:[^\\]]+\\(Ранг:[^)]+\\)\\]$"
+      }
+    },
+    {
+      "id": "REG-RPG-005",
+      "category": "rpg_class_tags",
+      "description": "Preserve class evolution progression operator inside brackets '[Class Evolution: Mage -> Archmage]'.",
+      "source_text": "[Class Evolution Available: Mage -> Archmage]",
+      "source_en": "[Class Evolution Available: Mage -> Archmage]",
+      "expected_uk_canonical": "[Доступна еволюція класу: Маг -> Архімаг]",
+      "forbidden_variants": [
+        "<tag_",
+        "Mage -> Archmage",
+        "Доступна еволюція класу Маг Архімаг"
+      ],
+      "v1_failure_example": "Доступна еволюція класу: Маг до Архімаг без дужок",
+      "context": {
+        "glossary": [
+          {"source": "Mage", "target": "Маг", "reviewed": true},
+          {"source": "Archmage", "target": "Архімаг", "reviewed": true}
+        ],
+        "domain": "litrpg"
+      },
+      "metadata": {
+        "tier": "tier1_feature",
+        "formatting_pattern": "arrow_operator_brackets"
+      },
+      "expected_constraints": {
+        "must_include": ["[", "]", "->", "Маг", "Архімаг"],
+        "must_not_include": ["<tag_", "Mage -> Archmage"],
+        "expected_regex": "\\[Доступна еволюція класу:\\s*Маг\\s*->\\s*Архімаг\\]"
+      }
+    },
+    {
+      "id": "REG-RPG-006",
+      "category": "rpg_class_tags",
+      "description": "Preserve combat damage log with angle bracketed entity '[Combat Log: Critical Hit! -150 HP dealt to <Goblin Raider>]'.",
+      "source_text": "[Combat Log: Critical Hit! -150 HP dealt to Goblin Raider]",
+      "source_en": "[Combat Log: Critical Hit! -150 HP dealt to Goblin Raider]",
+      "expected_uk_canonical": "[Журнал бою: Критичний удар! -150 ОЗ завдано Гобліну-нападнику]",
+      "forbidden_variants": [
+        "<tag_",
+        "Combat Log:",
+        "Critical Hit!"
+      ],
+      "v1_failure_example": "Журнал бою Критичний удар -150 HP завдано Goblin Raider",
+      "context": {
+        "glossary": [
+          {"source": "Goblin Raider", "target": "Гоблін-нападник", "reviewed": true}
+        ],
+        "domain": "litrpg"
+      },
+      "metadata": {
+        "tier": "tier3_pairwise",
+        "cross_features": ["rpg_class_tags", "items", "character_names"],
+        "formatting_pattern": "combat_log_bracket"
+      },
+      "expected_constraints": {
+        "must_include": ["[", "]", "Журнал бою:", "-150"],
+        "must_not_include": ["<tag_", "Combat Log:", "Critical Hit!"],
+        "expected_regex": "^\\[Журнал бою:[^\\]]+-150[^\\]]+\\]$"
+      }
+    }
+  ]
+}
